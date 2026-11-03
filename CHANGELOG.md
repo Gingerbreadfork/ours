@@ -2,7 +2,7 @@
 
 ## 0.1.0-rc.1
 
-First release candidate. Linux x86_64 only.
+First release candidate. Linux x86_64 and aarch64.
 
 ### Platforms
 

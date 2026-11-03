@@ -92,7 +92,7 @@ Everything a member can say is in [docs/say.md](docs/say.md).
 Download a release, or build with `cargo build --release`.
 
 ```sh
-tar xzf ours-<version>-x86_64-linux.tar.gz && cd ours-<version>-x86_64-linux
+tar xzf ours-<version>-<arch>-linux.tar.gz && cd ours-<version>-<arch>-linux   # x86_64 or aarch64
 cp ours.example.toml ours.toml          # the model endpoint, the group, its rooms
 export OURS_DISCORD_TOKEN=...             # or the Slack tokens, or OURS_TELEGRAM_TOKEN
 ./ours check

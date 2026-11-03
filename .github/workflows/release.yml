@@ -12,13 +12,25 @@ env:
 
 jobs:
   tarball:
-    runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            arch: x86_64
+          - runner: ubuntu-24.04-arm
+            arch: aarch64
+    runs-on: ${{ matrix.runner }}
     permissions:
       contents: read
       id-token: write
       attestations: write
     steps:
       - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - name: Check
         run: scripts/check.sh
       - name: Build the tarball
@@ -26,12 +38,10 @@ jobs:
       - name: Attest provenance
         uses: actions/attest-build-provenance@v3
         with:
-          subject-path: |
-            dist/*.tar.gz
-            dist/SHA256SUMS
+          subject-path: dist/*.tar.gz
       - uses: actions/upload-artifact@v4
         with:
-          name: dist
+          name: dist-${{ matrix.arch }}
           path: |
             dist/*.tar.gz
             dist/SHA256SUMS
@@ -81,8 +91,14 @@ jobs:
     steps:
       - uses: actions/download-artifact@v4
         with:
-          name: dist
-          path: dist
+          pattern: dist-*
+          path: artifacts
+      - name: Gather the tarballs and one checksum file
+        run: |
+          mkdir -p dist
+          cp artifacts/*/*.tar.gz dist/
+          cat artifacts/*/SHA256SUMS | sort -k2 > dist/SHA256SUMS
+          cat dist/SHA256SUMS
       - name: Upload to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

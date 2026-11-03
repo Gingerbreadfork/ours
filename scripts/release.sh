@@ -19,7 +19,9 @@ if [ -z "$version" ]; then
     echo "could not read the version from Cargo.toml" >&2
     exit 1
 fi
-name="ours-${version}-x86_64-linux"
+# The machine's own architecture: the workflow runs this on x86_64 and aarch64 runners.
+arch="$(uname -m)"
+name="ours-${version}-${arch}-linux"
 dist="dist"
 stage="${dist}/${name}"
 

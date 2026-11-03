@@ -2,7 +2,7 @@
 
 Ours is one binary, `ours`, and one config file, `ours.toml`. This
 page takes you from a download to the agent saying hello in a room. The
-Linux x86_64 release is the supported build in 0.1.0-rc.1.
+Linux on x86_64 and aarch64 are the supported builds in 0.1.0-rc.1.
 
 ## What you need
 
@@ -19,15 +19,15 @@ Linux x86_64 release is the supported build in 0.1.0-rc.1.
    the download.
 
        sha256sum -c SHA256SUMS --ignore-missing
-       gh attestation verify ours-0.1.0-rc.1-x86_64-linux.tar.gz --repo Gingerbreadfork/ours
+       gh attestation verify ours-0.1.0-rc.1-<arch>-linux.tar.gz --repo Gingerbreadfork/ours
 
    If a `SHA256SUMS.bundle` is attached, `cosign verify-blob` checks the
    signature on `SHA256SUMS` too.
 
 2. Unpack it and put the binary on your path.
 
-       tar xzf ours-0.1.0-rc.1-x86_64-linux.tar.gz
-       cd ours-0.1.0-rc.1-x86_64-linux
+       tar xzf ours-0.1.0-rc.1-<arch>-linux.tar.gz    # x86_64 or aarch64
+       cd ours-0.1.0-rc.1-<arch>-linux
        sudo install -m 0755 ours /usr/local/bin/ours
 
 3. Make the config. The tarball carries `ours.example.toml`.

@@ -9,10 +9,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-if [ "$(uname -s)" != "Linux" ] || [ "$(uname -m)" != "x86_64" ]; then
-    echo "release.sh builds the x86_64 Linux tarball; this host is $(uname -sm)" >&2
-    exit 1
-fi
+case "$(uname -s)/$(uname -m)" in
+    Linux/x86_64|Linux/aarch64) ;;
+    *)
+        echo "release.sh builds Linux tarballs for x86_64 and aarch64; this host is $(uname -s) $(uname -m)" >&2
+        exit 1
+        ;;
+esac
 
 version="$(sed -n 's/^version *= *"\(.*\)"/\1/p' Cargo.toml | head -n 1)"
 if [ -z "$version" ]; then

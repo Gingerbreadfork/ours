@@ -1,0 +1,30 @@
+{
+  "name": "print-run",
+  "kind": "team",
+  "description": "A team weighs two printers. The agent marks the open question, keeps a member's view without counting it, tells a member that a lead decides, records the lead's decision with the reason, and answers \"why\" from the record.",
+  "source": "DESIGN.md section 6, A week at work, Monday",
+  "start": "2026-11-09T10:00:00Z",
+  "timezone": "Europe/London",
+  "members": [
+    {"id": "priya", "name": "Priya", "role": "lead"},
+    {"id": "sam", "name": "Sam", "role": "lead"},
+    {"id": "jo", "name": "Jo", "role": "member"},
+    {"id": "alex", "name": "Alex", "role": "member"}
+  ],
+  "turns": [
+    {"t": 0, "from": "jo", "text": "are we going with Acme or Beacon for the print run?"},
+    {"t": 120, "from": "alex", "text": "Beacon were cheaper but Acme hit the date last time"},
+    {"t": 420, "from": "jo", "text": "Beacon for me"},
+    {"t": 480, "from": "jo", "text": "Noa, go with Beacon"},
+    {"t": 600, "from": "sam", "text": "Acme, the date matters more than 8%"},
+    {"t": 900, "from": "alex", "text": "Noa, why did we go with Acme?"}
+  ],
+  "expect": {
+    "0": {"speak": "must_not"},
+    "1": {"speak": "may", "action": "open_poll", "note": "lead decides: one marker line, no ballot"},
+    "2": {"speak": "must_not", "note": "a member's view is kept, not counted"},
+    "3": {"speak": "must", "content_must_mention": ["Priya|Sam|lead"], "action_must_not": ["record_decision"]},
+    "4": {"speak": "must", "action": "record_decision", "content_must_mention": ["Acme"]},
+    "5": {"speak": "must", "content_must_mention": ["Sam", "date"]}
+  }
+}

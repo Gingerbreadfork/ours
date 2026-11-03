@@ -1,0 +1,99 @@
+# Copy to ours.toml. Secrets may also come from the environment:
+# OURS_MODEL_API_KEY, OURS_DISCORD_TOKEN, OURS_ADMIN_TOKEN.
+
+[host]
+data_dir = "./data"
+admin_bind = "0.0.0.0:7777"
+# admin_token = ""        # generated at start when empty
+# public_url = "https://ours.example.org"   # for calendar feed links; LAN address when unset
+
+[model]
+base_url = "http://localhost:8080/v1"
+model = "gpt-oss-20b"
+dialect = "openai"        # openai | llama_cpp | ollama
+# api_key = ""
+daily_cap_usd = 1.0
+timeout_secs = 60
+# chat_temperature = 0.8   # replies; extraction and scoring always use 0
+# chat_max_tokens = 700
+# Extra request fields, for example to turn off a model's thinking mode:
+# extra = { chat_template_kwargs = { enable_thinking = false } }
+
+# The small model that scores every message before the large one is asked.
+# Defaults to the [model] endpoint; point it at a smaller model to save time,
+# or set enabled = false to keep the rules pass only.
+[classifier]
+enabled = true
+# model = "gemma-4-e2b"
+
+# Triage telemetry: off by default. When on, a text-free record per scored
+# message (signals, kind, dial, outcome) is written under data/telemetry and,
+# if endpoint is set, posted there. `ours telemetry --show` prints a sample.
+[telemetry]
+enabled = false
+# endpoint = "https://telemetry.example.org/v1/triage"
+
+# The group's email address (tier-1 actions: held, then sent, undoable).
+# Leave the section out and the agent cannot send mail. Passwords may come
+# from OURS_SMTP_PASSWORD and OURS_IMAP_PASSWORD instead of the file.
+# [mail]
+# from = "Noa for The Six <q@example.org>"
+# reply_to = "host@example.org"
+# [mail.smtp]
+# host = "smtp.fastmail.com"
+# port = 465
+# username = "q@example.org"
+# password = ""
+# starttls = false            # false: TLS on 465; true: STARTTLS on 587
+# [mail.imap]
+# host = "imap.fastmail.com"
+# port = 993
+# username = "q@example.org"
+# password = ""
+# folder = "INBOX"
+# poll_secs = 60
+# authserv_id = "mx.fastmail.com"   # who signs Authentication-Results; the host when unset
+# For a trial without a provider: dir = "./data/mail" writes .eml files and
+# reads replies dropped there.
+
+[[connectors]]
+platform = "discord"
+agent_name = "Noa"
+# token = ""
+# guilds = ["123456789012345678"]
+
+# Slack: create the app from manifests/slack.yaml, install it, then
+# token is the bot token (xoxb-) and app_token the app-level token (xapp-)
+# with connections:write. Or set OURS_SLACK_BOT_TOKEN and OURS_SLACK_APP_TOKEN.
+# [[connectors]]
+# platform = "slack"
+# agent_name = "Noa"
+# token = ""
+# app_token = ""
+# leads_usergroup = "leads"   # optional: members of this user group are leads
+
+# Telegram: make the bot with @BotFather, turn its privacy mode off
+# (/setprivacy, Disable) so it reads the whole group, add it to the group
+# as an administrator, and put the group's chat id under the group's rooms.
+# [[connectors]]
+# platform = "telegram"
+# agent_name = "Noa"
+# token = ""                  # or OURS_TELEGRAM_TOKEN
+
+[[groups]]
+id = "the-six"            # stable slug; also the SQLite file name
+name = "The Six"
+kind = "friends"          # friends | household | team | project | club | community | committee | cohort
+timezone = "Europe/London"
+currency = "GBP"             # ISO 4217, for the tab
+agent_name = "Noa"
+# persona = "host"           # a starter persona by name; `ours personas` lists them
+# legal_hold = false         # true: nothing expires until lifted
+# dial = 1                 # 0 concierge, 1 dry and brief, 2 a mate, 3 chaos
+# voice = "Plain and brief, like the friend who keeps track of things."
+# traits = ["quick", "warm", "remembers everything"]
+# bits = ["a running bit the group gave her"]
+# never_jokes_about = []
+rooms = [{ platform = "discord", id = "123456789012345678" }]
+# leads = ["987654321098765432"]   # platform user ids; empty means the profile default
+# hosts = ["987654321098765432"]

@@ -1,0 +1,73 @@
+{
+  "oneOf": [
+    {
+      "$ref": "#/$defs/OutgoingMail",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "send_mail"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "cancel_mail"
+        },
+        "original": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "mail": {
+          "$ref": "#/$defs/OutgoingMail"
+        }
+      },
+      "required": [
+        "type",
+        "original",
+        "mail"
+      ],
+      "description": "The compensation for a sent mail: a follow-up to the same address."
+    }
+  ],
+  "description": "What the binary carries out through an integration. Every variant has a\ncompensating variant or is its own compensation.",
+  "title": "OutsideAction",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "OutgoingMail": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "in_reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ],
+      "description": "An email the group sends. `in_reply_to` threads it under an earlier\nmessage id so replies can be matched back."
+    },
+    "ActionId": {
+      "type": "string",
+      "description": "An outbound action the engine asked a connector to perform."
+    }
+  }
+}

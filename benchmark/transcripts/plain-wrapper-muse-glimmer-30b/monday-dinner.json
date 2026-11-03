@@ -1,0 +1,14 @@
+{
+  "scenario": "monday-dinner",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 14,
+      "kind": "message",
+      "text": "Got it, no Thursday for you. Friday works then?",
+      "unprompted": false,
+      "room": "general",
+      "t": 90000
+    }
+  ]
+}

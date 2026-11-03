@@ -1,0 +1,87 @@
+{
+  "scenario": "print-run",
+  "agent": "Ours, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 1,
+      "kind": "message",
+      "text": "📌 Open: Acme or Beacon. Lead decides; I'll keep the thread.",
+      "unprompted": true,
+      "room": "general",
+      "t": 120
+    },
+    {
+      "turn": 1,
+      "kind": "action",
+      "text": "Print run",
+      "action": "open_poll",
+      "t": 120
+    },
+    {
+      "turn": 2,
+      "kind": "action",
+      "text": "Jo prefers print vendor Beacon",
+      "action": "store_fact",
+      "t": 420
+    },
+    {
+      "turn": 2,
+      "kind": "action",
+      "text": "Beacon cheaper Acme",
+      "action": "store_fact",
+      "t": 420
+    },
+    {
+      "turn": 2,
+      "kind": "action",
+      "text": "Acme hit date last time true",
+      "action": "store_fact",
+      "t": 420
+    },
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "That's one for Priya or Sam.",
+      "unprompted": false,
+      "room": "general",
+      "t": 480
+    },
+    {
+      "turn": 3,
+      "kind": "action",
+      "text": "That's one for Priya or Sam.",
+      "action": "decline",
+      "t": 480
+    },
+    {
+      "turn": 4,
+      "kind": "message",
+      "text": "Decided: Acme, by Sam, for the date.",
+      "unprompted": true,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 4,
+      "kind": "action",
+      "text": "Acme",
+      "action": "record_decision",
+      "t": 600
+    },
+    {
+      "turn": 4,
+      "kind": "action",
+      "text": "Sam prefers print vendor Acme",
+      "action": "store_fact",
+      "t": 600
+    },
+    {
+      "turn": 5,
+      "kind": "message",
+      "text": "Print run: Acme, decided by Sam on Monday the 9th: \"the date matters more than 8%\".\nThe other option was Beacon.",
+      "unprompted": false,
+      "room": "general",
+      "t": 900
+    }
+  ]
+}

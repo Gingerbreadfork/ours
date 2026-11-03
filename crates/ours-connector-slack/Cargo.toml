@@ -1,0 +1,33 @@
+[package]
+name = "ours-connector-slack"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Slack through Socket Mode: threads, externals as guests, admins and user groups as leads"
+
+[dependencies]
+ours-types = { workspace = true }
+ours-connector = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+emojis = "0.9.1"
+futures = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+# hyper-base only: the hyper and rustls-native-certs features turn on ring,
+# and the workspace keeps aws-lc-rs as its one crypto provider.
+slack-morphism = { version = "2.31.1", default-features = false, features = ["hyper-base"] }
+hyper-rustls = { version = "0.27.10", default-features = false, features = ["http2", "tls12", "logging"] }
+rustls = { version = "0.23.46", default-features = false, features = ["aws-lc-rs", "std", "tls12", "logging"] }
+tokio-tungstenite = { version = "0.30.0", default-features = false, features = ["connect", "rustls-tls-webpki-roots"] }
+webpki-roots = "1.0.11"
+
+[dev-dependencies]
+yaml_serde = "0.10.7"
+
+[lints]
+workspace = true

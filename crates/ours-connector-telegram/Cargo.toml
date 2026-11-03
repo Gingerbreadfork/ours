@@ -1,0 +1,27 @@
+[package]
+name = "ours-connector-telegram"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Telegram through the Bot API: groups, forum topics, admins as leads, native polls"
+
+[dependencies]
+ours-types = { workspace = true }
+ours-connector = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+# client-reqwest only: reqwest comes from the workspace, rustls on aws-lc-rs.
+frankenstein = { version = "0.52.1", default-features = false, features = ["client-reqwest"] }
+reqwest = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+wiremock = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,52 @@
+{
+  "name": "backfill",
+  "kind": "friends",
+  "description": "A new install with a past. A lead asks the agent to read back; it reads the room's last ninety days for facts with their sources, then answers questions only that history can answer. The facts are older than the last twenty lines, so a bot that only reads recent messages cannot.",
+  "source": "DESIGN.md section 18, Compounding assets, and section 22",
+  "members": [
+    {"id": "sam", "name": "Sam", "role": "lead"},
+    {"id": "priya", "name": "Priya", "role": "lead"},
+    {"id": "jo", "name": "Jo", "role": "lead"},
+    {"id": "alex", "name": "Alex", "role": "lead"}
+  ],
+  "history": [
+    {"ago": 5184000, "from": "priya", "text": "birthday drinks at Hobson's on saturday, the place with the weird cocktails"},
+    {"ago": 4320000, "from": "jo", "text": "I'm vegetarian these days"},
+    {"ago": 4233600, "from": "sam", "text": "noted for the bbq"},
+    {"ago": 2592000, "from": "alex", "text": "my birthday is 3 May btw"},
+    {"ago": 2160000, "from": "sam", "text": "anyone watching the match tonight"},
+    {"ago": 2073600, "from": "priya", "text": "lol"},
+    {"ago": 1987200, "from": "jo", "text": "running late, sorry"},
+    {"ago": 1900800, "from": "alex", "text": "that film was so long"},
+    {"ago": 1814400, "from": "sam", "text": "who has my umbrella"},
+    {"ago": 1728000, "from": "priya", "text": "it was at jo's"},
+    {"ago": 1641600, "from": "jo", "text": "train strike on friday"},
+    {"ago": 1555200, "from": "alex", "text": "ugh"},
+    {"ago": 1468800, "from": "sam", "text": "pub quiz was rigged"},
+    {"ago": 1382400, "from": "priya", "text": "we came fourth"},
+    {"ago": 1296000, "from": "jo", "text": "fourth is respectable"},
+    {"ago": 1209600, "from": "alex", "text": "send the photos"},
+    {"ago": 1123200, "from": "sam", "text": "done"},
+    {"ago": 1036800, "from": "priya", "text": "good night all"},
+    {"ago": 950400, "from": "jo", "text": "morning"},
+    {"ago": 864000, "from": "alex", "text": "coffee?"},
+    {"ago": 777600, "from": "sam", "text": "already had three"},
+    {"ago": 691200, "from": "priya", "text": "bold"},
+    {"ago": 604800, "from": "jo", "text": "is it raining there"},
+    {"ago": 518400, "from": "alex", "text": "yes, a lot"},
+    {"ago": 432000, "from": "sam", "text": "staying in then"},
+    {"ago": 345600, "from": "priya", "text": "same"},
+    {"ago": 259200, "from": "jo", "text": "new episode is out"},
+    {"ago": 172800, "from": "alex", "text": "no spoilers"}
+  ],
+  "turns": [
+    {"t": 0, "from": "sam", "text": "Noa, backfill"},
+    {"t": 600, "from": "alex", "text": "Noa, is anyone here vegetarian?"},
+    {"t": 660, "from": "priya", "text": "Noa, when is Alex's birthday?"}
+  ],
+  "expect": {
+    "0": {"speak": "must", "action": "store_fact"},
+    "1": {"speak": "must", "content_must_mention": ["Jo"]},
+    "2": {"speak": "must", "content_must_mention": ["3 May|May 3"]}
+  }
+}

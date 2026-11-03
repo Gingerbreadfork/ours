@@ -1,0 +1,24 @@
+[package]
+name = "ours-core"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The Ours engine: group state and the pure step fold"
+
+[dependencies]
+ours-types = { workspace = true }
+# The bundled zone database keeps the engine from reading the host's tzdata.
+jiff = { workspace = true, features = ["tzdb-bundle-always"] }
+schemars = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = "0.11.1"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+proptest = { workspace = true }
+
+[lints]
+workspace = true

@@ -1,0 +1,30 @@
+{
+  "scenario": "backfill",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "message",
+      "text": "You had a pub quiz at Jo's, came fourth, photos are sent. Train strike Friday, it's raining so you're staying in, and the new episode is out - no spoilers.",
+      "unprompted": false,
+      "room": "general",
+      "t": 0
+    },
+    {
+      "turn": 1,
+      "kind": "message",
+      "text": "No one mentioned being vegetarian in this chat.",
+      "unprompted": false,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 2,
+      "kind": "message",
+      "text": "I don't have access to Alex's birthday. It hasn't been mentioned in this chat.",
+      "unprompted": false,
+      "room": "general",
+      "t": 660
+    }
+  ]
+}

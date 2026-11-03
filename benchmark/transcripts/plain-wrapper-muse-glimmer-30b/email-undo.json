@@ -1,0 +1,30 @@
+{
+  "scenario": "email-undo",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "message",
+      "text": "I can't send emails directly. Here's a draft you can send to legal@example.com: 'Summary from Friday's thread: launch moves to the 20th and the print run stays with Acme.'",
+      "unprompted": false,
+      "room": "general",
+      "t": 0
+    },
+    {
+      "turn": 1,
+      "kind": "message",
+      "text": "Got it. Tell me what line you want to add and I'll update the draft.",
+      "unprompted": false,
+      "room": "general",
+      "t": 120
+    },
+    {
+      "turn": 2,
+      "kind": "message",
+      "text": "I can't send emails directly. Here's a draft you can send to legal@example.com: 'We're finished.'",
+      "unprompted": false,
+      "room": "general",
+      "t": 300
+    }
+  ]
+}

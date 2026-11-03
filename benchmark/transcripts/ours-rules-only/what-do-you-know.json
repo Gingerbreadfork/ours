@@ -1,0 +1,38 @@
+{
+  "scenario": "what-do-you-know",
+  "agent": "Ours, rules only",
+  "entries": [
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "I'll DM you.",
+      "unprompted": false,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 3,
+      "kind": "dm",
+      "text": "I don't hold anything about you.\nI also keep the hour you usually reply, for timing only.\nSay forget me to clear all of it.",
+      "unprompted": false,
+      "to": "sam",
+      "t": 600
+    },
+    {
+      "turn": 4,
+      "kind": "dm",
+      "text": "I don't hold anything about you.\nI also keep the hour you usually reply, for timing only.\nSay forget me to clear all of it.",
+      "unprompted": false,
+      "to": "sam",
+      "t": 660
+    },
+    {
+      "turn": 5,
+      "kind": "dm",
+      "text": "I don't hold anything about you.\nI also keep the hour you usually reply, for timing only.\nSay forget me to clear all of it.",
+      "unprompted": false,
+      "to": "priya",
+      "t": 720
+    }
+  ]
+}

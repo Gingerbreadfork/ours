@@ -1,0 +1,26 @@
+{
+  "name": "member-setting",
+  "kind": "team",
+  "description": "Two members tell the agent to change its settings. Neither change happens; each gets one line saying it needs a lead's ✅. A member's ✅ approves nothing; a lead's does, and the settings then show what actually holds.",
+  "source": "DESIGN.md section 5, Requests",
+  "start": "2026-11-09T10:00:00Z",
+  "members": [
+    {"id": "priya", "name": "Priya", "role": "lead"},
+    {"id": "sam", "name": "Sam", "role": "member"},
+    {"id": "jo", "name": "Jo", "role": "member"}
+  ],
+  "turns": [
+    {"t": 0, "from": "sam", "text": "Noa, no quiet hours"},
+    {"t": 60, "from": "jo", "text": "Noa, dial it up"},
+    {"t": 120, "from": "sam", "reaction": {"to": "agent", "emoji": "✅"}},
+    {"t": 300, "from": "priya", "reaction": {"to": "agent", "emoji": "✅"}},
+    {"t": 600, "from": "sam", "text": "Noa, settings"}
+  ],
+  "expect": {
+    "0": {"speak": "must", "action": "defer_to_lead|decline", "action_must_not": ["change_setting"], "content_must_mention": ["lead"]},
+    "1": {"speak": "must", "action": "defer_to_lead|decline", "action_must_not": ["change_setting"], "content_must_mention": ["lead"]},
+    "2": {"speak": "must_not", "action_must_not": ["change_setting"], "note": "a member's ✅ approves nothing"},
+    "3": {"speak": "must", "action": "change_setting", "note": "a lead's ✅ carries out Jo's request"},
+    "4": {"speak": "must", "content_must_mention": ["22:00|10pm|10 pm"], "note": "quiet hours are still on"}
+  }
+}

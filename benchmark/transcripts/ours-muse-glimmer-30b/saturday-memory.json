@@ -1,0 +1,36 @@
+{
+  "scenario": "saturday-memory",
+  "agent": "Ours, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "Priya hosted birthday drinks at Hobson's",
+      "action": "store_fact",
+      "t": 0
+    },
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "Priya attended Noa's birthday drinks at Hobson's",
+      "action": "store_fact",
+      "t": 0
+    },
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "Hobson's. That's where Priya's birthday drinks were.",
+      "unprompted": false,
+      "room": "general",
+      "t": 406800
+    },
+    {
+      "turn": 4,
+      "kind": "message",
+      "text": "Sam did. Jo agreed it was bad too.",
+      "unprompted": false,
+      "room": "general",
+      "t": 406860
+    }
+  ]
+}

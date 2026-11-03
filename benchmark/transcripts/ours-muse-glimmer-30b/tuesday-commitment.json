@@ -1,0 +1,69 @@
+{
+  "scenario": "tuesday-commitment",
+  "agent": "Ours, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 1,
+      "kind": "reaction",
+      "emoji": "📌",
+      "unprompted": true,
+      "room": "general",
+      "t": 300
+    },
+    {
+      "turn": 1,
+      "kind": "action",
+      "text": "provide draft to legal",
+      "action": "store_commitment",
+      "t": 300
+    },
+    {
+      "turn": 2,
+      "kind": "dm",
+      "text": "Provide draft to legal is due tomorrow. Done, slipping, or drop it?",
+      "unprompted": true,
+      "to": "alex",
+      "t": 86400
+    },
+    {
+      "turn": 2,
+      "kind": "message",
+      "text": "Due: Alex, provide draft to legal, tomorrow.",
+      "unprompted": true,
+      "room": "general",
+      "t": 115200
+    },
+    {
+      "turn": 2,
+      "kind": "dm",
+      "text": "Provide draft to legal is due today. Done, slipping, or drop it?",
+      "unprompted": true,
+      "to": "alex",
+      "t": 172800
+    },
+    {
+      "turn": 3,
+      "kind": "dm",
+      "text": "Moved to Friday the 6th.",
+      "unprompted": false,
+      "to": "alex",
+      "t": 183600
+    },
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "Due: Alex, provide draft to legal, tomorrow.\nSlipped: Alex, provide draft to legal, to Friday the 6th.",
+      "unprompted": true,
+      "room": "general",
+      "t": 201600
+    },
+    {
+      "turn": 4,
+      "kind": "dm",
+      "text": "Marked done: provide draft to legal.",
+      "unprompted": false,
+      "to": "alex",
+      "t": 280800
+    }
+  ]
+}

@@ -1,0 +1,983 @@
+{
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_kind"
+        },
+        "kind": {
+          "$ref": "#/$defs/Kind"
+        }
+      },
+      "required": [
+        "type",
+        "kind"
+      ],
+      "description": "Change the kind and reset the profile to that kind's defaults. The\nagent's name, leads, hosts and observe state are kept."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_leads"
+        },
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlatformUserId"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "users"
+      ],
+      "description": "Replace the named leads list."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "add_lead"
+        },
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        }
+      },
+      "required": [
+        "type",
+        "user"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "remove_lead"
+        },
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        }
+      },
+      "required": [
+        "type",
+        "user"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_hosts"
+        },
+        "users": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlatformUserId"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "users"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_persona"
+        },
+        "persona": {
+          "$ref": "#/$defs/Persona"
+        }
+      },
+      "required": [
+        "type",
+        "persona"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "use_persona"
+        },
+        "name": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ],
+      "description": "One of the starter personas by name, or \"plain\" for the default."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_legal_hold"
+        },
+        "on": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "type",
+        "on"
+      ],
+      "description": "Turn expiry and retention off, or back on."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_agent_name"
+        },
+        "name": {
+          "type": "string"
+        },
+        "by_host": {
+          "type": "boolean",
+          "description": "Set by the host's config, which skips the name question in setup.",
+          "default": false
+        }
+      },
+      "required": [
+        "type",
+        "name"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_timezone"
+        },
+        "zone": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "zone"
+      ],
+      "description": "The group's home zone, an IANA name such as \"Europe/Lisbon\"."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_profile"
+        },
+        "profile": {
+          "$ref": "#/$defs/Profile"
+        }
+      },
+      "required": [
+        "type",
+        "profile"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_model_label"
+        },
+        "label": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "label"
+      ],
+      "description": "Which model answers and where it runs, as the group should be told."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "change_setting"
+        },
+        "change": {
+          "$ref": "#/$defs/SettingChange"
+        }
+      },
+      "required": [
+        "type",
+        "change"
+      ],
+      "description": "Any change a lead can make by sentence, applied as if a lead said it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_decision_rule"
+        },
+        "rule": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CloseRule"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "type"
+      ],
+      "description": "How new proposals close; none to go back to the kind's rule."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_member_zone"
+        },
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "zone": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "user"
+      ],
+      "description": "A member's zone as an IANA name; none to forget it."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_currency"
+        },
+        "code": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "code"
+      ],
+      "description": "The tab's currency, an ISO 4217 code such as \"AUD\"."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "set_feed_base"
+        },
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "url"
+      ],
+      "description": "Where the binary serves the calendar feeds, without \".ics\": the\ngroup's is `<url>.ics` and a member's `<url>/<user>.ics`. Empty turns\nthe links off."
+    }
+  ],
+  "description": "A configuration change from the admin page or the host's CLI.",
+  "title": "Command",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Kind": {
+      "type": "string",
+      "enum": [
+        "friends",
+        "household",
+        "team",
+        "project",
+        "club",
+        "community",
+        "committee",
+        "cohort"
+      ],
+      "description": "The kind of group, which sets defaults and nothing else (DESIGN.md section 4)."
+    },
+    "PlatformUserId": {
+      "type": "string",
+      "description": "A user as the platform identifies them. Never a display name."
+    },
+    "Persona": {
+      "type": "object",
+      "properties": {
+        "voice": {
+          "type": "string",
+          "description": "One line on how it talks."
+        },
+        "traits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "never_jokes_about": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Subjects it never jokes about, on top of the hard rules."
+        },
+        "bits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Running bits and in-jokes the group gave it, in the group's words.",
+          "default": []
+        }
+      },
+      "required": [
+        "voice",
+        "traits",
+        "never_jokes_about"
+      ],
+      "description": "How the agent sounds in one group. The dial lives in the profile."
+    },
+    "Profile": {
+      "type": "object",
+      "properties": {
+        "leads": {
+          "$ref": "#/$defs/LeadsRule"
+        },
+        "budget_per_hour": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Unprompted messages allowed in any rolling hour."
+        },
+        "budget_per_day": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Unprompted messages allowed per calendar day in the group's zone."
+        },
+        "speech_threshold": {
+          "type": "number",
+          "format": "double",
+          "description": "Attention score above which the agent speaks unprompted."
+        },
+        "hold_window_seconds": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "How long a tier-1 action waits before it leaves the group."
+        },
+        "dial": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "The persona dial, 0 to 3 (DESIGN.md section 16)."
+        },
+        "quiet_hours": {
+          "$ref": "#/$defs/QuietHours"
+        },
+        "working_hours": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkingHours"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "answer_window_seconds": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "How long a question may go unanswered before the agent raises a hand.",
+          "default": 1200
+        },
+        "observe_seconds": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "How long a new group is watched before the agent speaks unprompted.",
+          "default": 0
+        },
+        "jobs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Jobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The scheduled jobs, once a lead has changed them; else the kind's.",
+          "default": null
+        },
+        "unprompted_outbound": {
+          "$ref": "#/$defs/UnpromptedOutbound",
+          "description": "Whether a tier-1 action nobody asked for may leave the group.",
+          "default": "propose"
+        },
+        "chime_threshold": {
+          "type": "number",
+          "format": "float",
+          "description": "The banter score at which it may chime in, at dial 2 and 3.",
+          "default": 0.699999988079071
+        },
+        "chimes_per_day": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Chime-ins allowed per local day; unset follows the dial.",
+          "default": null
+        }
+      },
+      "required": [
+        "leads",
+        "budget_per_hour",
+        "budget_per_day",
+        "speech_threshold",
+        "hold_window_seconds",
+        "dial",
+        "quiet_hours"
+      ]
+    },
+    "LeadsRule": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "everyone",
+          "description": "Every member is a lead."
+        },
+        {
+          "type": "string",
+          "const": "admins",
+          "description": "Platform owners and admins."
+        },
+        {
+          "type": "string",
+          "const": "moderators",
+          "description": "Platform owners, admins and moderators."
+        },
+        {
+          "type": "string",
+          "const": "named",
+          "description": "Only the people in the leads list."
+        }
+      ],
+      "description": "Who is a lead without being named in the leads list (DESIGN.md section 5)."
+    },
+    "QuietHours": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "end": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "description": "Local hours in the group's zone when nothing unprompted is sent. The\nspan may wrap midnight."
+    },
+    "WorkingHours": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "end": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "weekdays_only": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "weekdays_only"
+      ],
+      "description": "Local hours in the group's zone when unprompted messages may be sent."
+    },
+    "Jobs": {
+      "type": "object",
+      "properties": {
+        "digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClockTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the daily digest goes out; none for no digest."
+        },
+        "day_of": {
+          "type": "boolean",
+          "description": "The one line on a day with something on the calendar."
+        }
+      },
+      "required": [
+        "day_of"
+      ],
+      "description": "The scheduled jobs a profile turns on (DESIGN.md section 4)."
+    },
+    "ClockTime": {
+      "type": "object",
+      "properties": {
+        "hour": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "minute": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "required": [
+        "hour",
+        "minute"
+      ],
+      "description": "A local time of day in the group's zone."
+    },
+    "UnpromptedOutbound": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "never"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "do",
+          "description": "Do it, with the hold."
+        },
+        {
+          "type": "string",
+          "const": "propose",
+          "description": "DM a lead with a ✅ and do nothing until one comes."
+        }
+      ],
+      "description": "What the agent does when it, not a lead, wants something to leave the\ngroup (DESIGN.md section 13, \"Unprompted outbound\")."
+    },
+    "SettingChange": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "quiet_from"
+            },
+            "start": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "start"
+          ],
+          "description": "Quiet from `start` until the current end, or 08:00 when there was none."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "quiet_hours"
+            },
+            "start": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "end": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "start",
+            "end"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "no_quiet_hours"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "working_hours"
+            },
+            "start": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "end": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "start",
+            "end"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "no_working_hours"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "dial_by"
+            },
+            "delta": {
+              "type": "integer",
+              "format": "int8",
+              "minimum": -128,
+              "maximum": 127
+            }
+          },
+          "required": [
+            "type",
+            "delta"
+          ],
+          "description": "Turn the dial up or down by `delta`, within 0 to 3."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "dial_to"
+            },
+            "dial": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "dial"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "kind"
+            },
+            "kind": {
+              "$ref": "#/$defs/Kind"
+            }
+          },
+          "required": [
+            "type",
+            "kind"
+          ],
+          "description": "Reset the profile to this kind's defaults."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "go"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "End observe mode and start speaking unprompted."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "observe"
+            },
+            "days": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Watch again for `days`, or the profile's period when not given."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "digest_at"
+            },
+            "hour": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minute": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "hour",
+            "minute"
+          ],
+          "description": "The digest at this local time, which also turns it on."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "digest"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "on"
+          ],
+          "description": "The digest on at its usual time, or off."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "day_of"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "on"
+          ],
+          "description": "The day-of summary on or off."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "add_bit"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "description": "A running bit the group gave the agent."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "drop_bit"
+            },
+            "words": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "words"
+          ],
+          "description": "Drops every bit that mentions these words."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "use_persona"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "description": "One of the starter personas by name, or \"plain\" for the default."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "legal_hold"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "on"
+          ],
+          "description": "Turn expiry and retention off, or back on."
+        }
+      ],
+      "description": "A change to the group's settings, as a sentence or the admin page asks."
+    },
+    "CloseRule": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "majority_of_active",
+          "description": "More than half of the active members chose one option."
+        },
+        {
+          "type": "string",
+          "const": "majority_of_voters",
+          "description": "The most votes among those who voted."
+        },
+        {
+          "type": "string",
+          "const": "unanimous",
+          "description": "Every active member chose the same option."
+        },
+        {
+          "type": "string",
+          "const": "lead_decides",
+          "description": "No ballot; views are kept and a lead's choice closes it."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "named_deciders": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/PlatformUserId"
+              }
+            }
+          },
+          "required": [
+            "named_deciders"
+          ],
+          "additionalProperties": false,
+          "description": "Only these people's votes count."
+        },
+        {
+          "type": "string",
+          "const": "whoever_is_coming",
+          "description": "Those who say they are coming decide."
+        }
+      ],
+      "description": "How a proposal closes (DESIGN.md section 10, \"Close\")."
+    }
+  }
+}

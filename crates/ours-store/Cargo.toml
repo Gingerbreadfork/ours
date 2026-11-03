@@ -1,0 +1,21 @@
+[package]
+name = "ours-store"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Hash-chained event log and snapshot store for Ours, on SQLite"
+
+[dependencies]
+ours-types = { workspace = true }
+rusqlite = { workspace = true }
+sha2 = "0.11.1"
+thiserror = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+jiff = { workspace = true }
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

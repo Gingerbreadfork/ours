@@ -1,0 +1,109 @@
+{
+  "type": "object",
+  "properties": {
+    "message": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The reply to send, threaded under the message that asked. Null to say nothing."
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PlannedAction"
+      },
+      "description": "Anything to do besides the reply.",
+      "default": []
+    },
+    "cites": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The msg ids, from what you remember, of the facts the reply relies on.",
+      "default": []
+    }
+  },
+  "description": "The model's answer to one addressed message.",
+  "title": "Plan",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "PlannedAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "say"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "description": "A separate message in the room, not threaded under the question."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "react"
+            },
+            "emoji": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "emoji"
+          ],
+          "description": "A reaction on the message that asked."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "mail"
+            },
+            "to": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string",
+              "description": "Plain text, signed with your name for the group. The reply\naddress is added for you."
+            }
+          },
+          "required": [
+            "type",
+            "to",
+            "subject",
+            "body"
+          ],
+          "description": "An email from the group's address, held before it goes so it can be\nundone. Only to an address someone gave in the room."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "nothing"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    }
+  }
+}

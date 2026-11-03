@@ -1,0 +1,316 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/ActionId"
+    },
+    "action": {
+      "$ref": "#/$defs/OutboundAction"
+    }
+  },
+  "required": [
+    "id",
+    "action"
+  ],
+  "description": "An action with the id the engine will match its result to.",
+  "title": "Outbound",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ActionId": {
+      "type": "string",
+      "description": "An outbound action the engine asked a connector to perform."
+    },
+    "OutboundAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "send_message"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "text": {
+              "type": "string"
+            },
+            "reply_to": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "edit_message"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "id": {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "id",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "delete_message"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "id": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "react"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            "emoji": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message",
+            "emoji"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "unreact"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            "emoji": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message",
+            "emoji"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "send_dm"
+            },
+            "user": {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "user",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "pin"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "create_poll"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "question": {
+              "type": "string"
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Two to ten options, in order."
+            },
+            "multiple": {
+              "type": "boolean",
+              "description": "Whether a person may pick several."
+            },
+            "hours": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0,
+              "description": "How long the platform keeps it open, in hours."
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "question",
+            "options",
+            "multiple",
+            "hours"
+          ],
+          "description": "A native poll where the platform has them; the result's message id is\nthe poll's, and votes come back as `PollVote`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "end_poll"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message"
+          ],
+          "description": "End a native poll early."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "typing"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            }
+          },
+          "required": [
+            "type",
+            "room"
+          ],
+          "description": "Show the room the agent is writing, where the platform has an\nindicator. Fire and forget; the result carries no message."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "fetch_history"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "limit": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "limit"
+          ],
+          "description": "Ask for up to `limit` messages before `before` (or the newest when\nunset); answered with `InboundEvent::History`, oldest first."
+        }
+      ],
+      "description": "Everything the engine can ask a platform to do."
+    },
+    "PlatformRoomId": {
+      "type": "string",
+      "description": "A room (channel, DM, thread) as the platform identifies it."
+    },
+    "PlatformMessageId": {
+      "type": "string",
+      "description": "A message as the platform identifies it; the unit of provenance."
+    },
+    "PlatformUserId": {
+      "type": "string",
+      "description": "A user as the platform identifies them. Never a display name."
+    }
+  }
+}

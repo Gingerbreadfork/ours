@@ -1,0 +1,49 @@
+[package]
+name = "ours"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[lib]
+name = "ours"
+path = "src/lib.rs"
+
+[[bin]]
+name = "ours"
+path = "src/main.rs"
+
+[dependencies]
+ours-types = { workspace = true }
+ours-core = { workspace = true }
+ours-store = { workspace = true }
+ours-admin = { workspace = true }
+ours-model = { workspace = true }
+ours-connector = { workspace = true }
+ours-connector-discord = { workspace = true }
+ours-connector-slack = { workspace = true }
+ours-connector-telegram = { workspace = true }
+ours-mail = { workspace = true }
+reqwest = { workspace = true }
+sha2 = "0.11.1"
+schemars = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+clap = { workspace = true }
+jiff = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+toml = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true }
+ulid = { workspace = true }
+
+[dev-dependencies]
+ours-model = { workspace = true }
+wiremock = { workspace = true }
+tempfile = "3.27.0"
+
+[lints]
+workspace = true

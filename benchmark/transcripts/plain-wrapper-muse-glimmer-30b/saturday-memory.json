@@ -1,0 +1,22 @@
+{
+  "scenario": "saturday-memory",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "Hobson's. Priya mentioned it was her birthday drinks there.",
+      "unprompted": false,
+      "room": "general",
+      "t": 406800
+    },
+    {
+      "turn": 4,
+      "kind": "message",
+      "text": "Sam did. He called the negroni at Hobson's a war crime, and Jo agreed.",
+      "unprompted": false,
+      "room": "general",
+      "t": 406860
+    }
+  ]
+}

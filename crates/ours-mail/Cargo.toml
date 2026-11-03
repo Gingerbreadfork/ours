@@ -1,0 +1,35 @@
+[package]
+name = "ours-mail"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The group's email address: sending through SMTP and reading the inbox over IMAP"
+
+[dependencies]
+ours-types = { workspace = true }
+async-imap = { workspace = true }
+async-trait = { workspace = true }
+futures = { workspace = true }
+jiff = { workspace = true }
+mail-parser = { workspace = true }
+serde = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+ulid = { workspace = true }
+# The workspace pin has no crypto provider or root store; ring and the
+# One crypto provider across the workspace (aws-lc-rs, as reqwest and the
+# Discord connector use), with the bundled Mozilla roots so rustls works out
+# of the box.
+lettre = { workspace = true, features = ["rustls", "aws-lc-rs", "webpki-roots"] }
+rustls = { version = "0.23.46", default-features = false, features = ["aws-lc-rs", "std", "tls12", "logging"] }
+tokio-rustls = { version = "0.26.6", default-features = false, features = ["logging", "tls12"] }
+webpki-roots = "1.0.11"
+
+[dev-dependencies]
+tempfile = "3.27.0"
+toml = { workspace = true }
+
+[lints]
+workspace = true

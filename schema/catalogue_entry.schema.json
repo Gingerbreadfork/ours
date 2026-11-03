@@ -1,0 +1,69 @@
+{
+  "type": "object",
+  "properties": {
+    "class": {
+      "$ref": "#/$defs/ActionClass"
+    },
+    "tier": {
+      "$ref": "#/$defs/Tier"
+    },
+    "how_undone": {
+      "type": "string"
+    }
+  },
+  "required": [
+    "class",
+    "tier",
+    "how_undone"
+  ],
+  "description": "One row of the undo catalogue.",
+  "title": "CatalogueEntry",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ActionClass": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "room_message",
+            "reaction",
+            "poll",
+            "pin",
+            "dm",
+            "fact",
+            "commitment",
+            "ledger_line",
+            "calendar_entry",
+            "mail"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "undo",
+          "description": "Taking another action back."
+        }
+      ],
+      "description": "What kind of thing an action did."
+    },
+    "Tier": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "free",
+          "description": "Done immediately, undone completely."
+        },
+        {
+          "type": "string",
+          "const": "windowed",
+          "description": "Done after a hold window; undone by a compensating action."
+        },
+        {
+          "type": "string",
+          "const": "irreversible",
+          "description": "Asks exactly one person first."
+        }
+      ],
+      "description": "Consequence tier of an action (DESIGN.md section 13)."
+    }
+  }
+}

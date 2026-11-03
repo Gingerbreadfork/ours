@@ -1,0 +1,616 @@
+{
+  "type": "object",
+  "properties": {
+    "id": {
+      "$ref": "#/$defs/ActionId"
+    },
+    "class": {
+      "$ref": "#/$defs/ActionClass"
+    },
+    "tier": {
+      "$ref": "#/$defs/Tier"
+    },
+    "room": {
+      "$ref": "#/$defs/PlatformRoomId"
+    },
+    "requested_by": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "approved_by": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The lead whose ✅ carried out someone else's request."
+    },
+    "instruction": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "The message that asked for it."
+    },
+    "at": {
+      "$ref": "#/$defs/Instant"
+    },
+    "status": {
+      "$ref": "#/$defs/ActionStatus"
+    },
+    "summary": {
+      "type": "string",
+      "description": "A noun phrase: \"the email to bookings@baitong.com: Table for five\"."
+    },
+    "undo": {
+      "$ref": "#/$defs/Undo"
+    },
+    "outcome": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "What came of it, such as the venue's reply."
+    },
+    "lines": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PlatformMessageId"
+      },
+      "description": "The agent's messages about it, the one that announced it first.",
+      "default": []
+    },
+    "visible": {
+      "type": "boolean",
+      "description": "The room saw it, so a bare \"undo\" may mean it.",
+      "default": false
+    },
+    "outside": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/OutsideAction"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "What it sends, or sent, outside the group.",
+      "default": null
+    },
+    "reference": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "description": "The provider's reference once it was sent, kept after an undo so\nreplies still match.",
+      "default": null
+    },
+    "undoes": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/ActionId"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "For an undo, the record it took back.",
+      "default": null
+    }
+  },
+  "required": [
+    "id",
+    "class",
+    "tier",
+    "room",
+    "at",
+    "status",
+    "summary",
+    "undo"
+  ],
+  "title": "ActionRecord",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "ActionId": {
+      "type": "string",
+      "description": "An outbound action the engine asked a connector to perform."
+    },
+    "ActionClass": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "room_message",
+            "reaction",
+            "poll",
+            "pin",
+            "dm",
+            "fact",
+            "commitment",
+            "ledger_line",
+            "calendar_entry",
+            "mail"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "undo",
+          "description": "Taking another action back."
+        }
+      ],
+      "description": "What kind of thing an action did."
+    },
+    "Tier": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "free",
+          "description": "Done immediately, undone completely."
+        },
+        {
+          "type": "string",
+          "const": "windowed",
+          "description": "Done after a hold window; undone by a compensating action."
+        },
+        {
+          "type": "string",
+          "const": "irreversible",
+          "description": "Asks exactly one person first."
+        }
+      ],
+      "description": "Consequence tier of an action (DESIGN.md section 13)."
+    },
+    "PlatformRoomId": {
+      "type": "string",
+      "description": "A room (channel, DM, thread) as the platform identifies it."
+    },
+    "PlatformUserId": {
+      "type": "string",
+      "description": "A user as the platform identifies them. Never a display name."
+    },
+    "PlatformMessageId": {
+      "type": "string",
+      "description": "A message as the platform identifies it; the unit of provenance."
+    },
+    "Instant": {
+      "type": "string",
+      "format": "date-time",
+      "description": "An RFC 3339 timestamp in UTC"
+    },
+    "ActionStatus": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "done",
+            "declined"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "held": {
+              "type": "object",
+              "properties": {
+                "until": {
+                  "$ref": "#/$defs/Instant"
+                }
+              },
+              "required": [
+                "until"
+              ]
+            }
+          },
+          "required": [
+            "held"
+          ],
+          "additionalProperties": false,
+          "description": "Waiting out its hold window, or for the one person who must say yes."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sending": {
+              "type": "object",
+              "properties": {
+                "since": {
+                  "$ref": "#/$defs/Instant"
+                }
+              },
+              "required": [
+                "since"
+              ]
+            }
+          },
+          "required": [
+            "sending"
+          ],
+          "additionalProperties": false,
+          "description": "Handed to the integration; the result has not come back."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sent": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "$ref": "#/$defs/Instant"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "at"
+              ]
+            }
+          },
+          "required": [
+            "sent"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "undone": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "$ref": "#/$defs/Instant"
+                },
+                "by": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PlatformUserId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "at"
+              ]
+            }
+          },
+          "required": [
+            "undone"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "failed": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ]
+            }
+          },
+          "required": [
+            "failed"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "Where an action stands."
+    },
+    "Undo": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "delete": {
+              "type": "object",
+              "properties": {
+                "room": {
+                  "$ref": "#/$defs/PlatformRoomId"
+                },
+                "message": {
+                  "$ref": "#/$defs/PlatformMessageId"
+                }
+              },
+              "required": [
+                "room",
+                "message"
+              ]
+            }
+          },
+          "required": [
+            "delete"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "unreact": {
+              "type": "object",
+              "properties": {
+                "room": {
+                  "$ref": "#/$defs/PlatformRoomId"
+                },
+                "message": {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                "emoji": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "room",
+                "message",
+                "emoji"
+              ]
+            }
+          },
+          "required": [
+            "unreact"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "retract_facts": {
+              "type": "object",
+              "properties": {
+                "ids": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/FactId"
+                  }
+                }
+              },
+              "required": [
+                "ids"
+              ]
+            }
+          },
+          "required": [
+            "retract_facts"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "drop_commitment": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/CommitmentId"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "drop_commitment"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "void_line": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/LedgerId"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "void_line"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "end_poll": {
+              "type": "object",
+              "properties": {
+                "proposal": {
+                  "$ref": "#/$defs/ProposalId"
+                }
+              },
+              "required": [
+                "proposal"
+              ]
+            }
+          },
+          "required": [
+            "end_poll"
+          ],
+          "additionalProperties": false,
+          "description": "End the poll and close its proposal as expired."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "remove_entry": {
+              "type": "object",
+              "properties": {
+                "decision": {
+                  "$ref": "#/$defs/DecisionId"
+                }
+              },
+              "required": [
+                "decision"
+              ]
+            }
+          },
+          "required": [
+            "remove_entry"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "string",
+          "const": "cancel_hold",
+          "description": "Still held: cancelled outright."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "cancel_mail": {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "to"
+              ]
+            }
+          },
+          "required": [
+            "cancel_mail"
+          ],
+          "additionalProperties": false,
+          "description": "Already sent: a compensating mail to the same address."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "none": {
+              "type": "object",
+              "properties": {
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "why"
+              ]
+            }
+          },
+          "required": [
+            "none"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "How an action is taken back."
+    },
+    "FactId": {
+      "type": "string",
+      "description": "A fact's id, minted from the group's sequence so replay gives the same one."
+    },
+    "CommitmentId": {
+      "type": "string",
+      "description": "A commitment's id, minted from the group's sequence."
+    },
+    "LedgerId": {
+      "type": "string",
+      "description": "A ledger line's id, minted from the group's sequence."
+    },
+    "ProposalId": {
+      "type": "string",
+      "description": "A proposal's id, minted from the group's sequence."
+    },
+    "DecisionId": {
+      "type": "string",
+      "description": "A decision record's id, minted from the group's sequence."
+    },
+    "OutsideAction": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/OutgoingMail",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "send_mail"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "cancel_mail"
+            },
+            "original": {
+              "$ref": "#/$defs/ActionId"
+            },
+            "mail": {
+              "$ref": "#/$defs/OutgoingMail"
+            }
+          },
+          "required": [
+            "type",
+            "original",
+            "mail"
+          ],
+          "description": "The compensation for a sent mail: a follow-up to the same address."
+        }
+      ],
+      "description": "What the binary carries out through an integration. Every variant has a\ncompensating variant or is its own compensation."
+    },
+    "OutgoingMail": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "in_reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ],
+      "description": "An email the group sends. `in_reply_to` threads it under an earlier\nmessage id so replies can be matched back."
+    }
+  }
+}

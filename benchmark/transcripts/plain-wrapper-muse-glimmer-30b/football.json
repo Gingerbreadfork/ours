@@ -1,0 +1,14 @@
+{
+  "scenario": "football",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 38,
+      "kind": "message",
+      "text": "Only if you promise not to scream at me every time we defend.",
+      "unprompted": false,
+      "room": "general",
+      "t": 760
+    }
+  ]
+}

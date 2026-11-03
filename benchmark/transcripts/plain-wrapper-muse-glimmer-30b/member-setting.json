@@ -1,0 +1,30 @@
+{
+  "scenario": "member-setting",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "message",
+      "text": "Got it, no quiet hours. I’ll keep it low.",
+      "unprompted": false,
+      "room": "general",
+      "t": 0
+    },
+    {
+      "turn": 1,
+      "kind": "message",
+      "text": "Got it, turning it up.",
+      "unprompted": false,
+      "room": "general",
+      "t": 60
+    },
+    {
+      "turn": 4,
+      "kind": "message",
+      "text": "Got it, opening settings.",
+      "unprompted": false,
+      "room": "general",
+      "t": 600
+    }
+  ]
+}

@@ -1,0 +1,37 @@
+{
+  "scenario": "shut-up",
+  "agent": "Ours, rules only",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "message",
+      "text": "🗳️ Dinner: Thursday or Friday?\n1️⃣ Thursday the 5th\n2️⃣ Friday the 6th",
+      "unprompted": false,
+      "room": "general",
+      "t": 0
+    },
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "Dinner",
+      "action": "open_poll",
+      "t": 0
+    },
+    {
+      "turn": 5,
+      "kind": "reaction",
+      "emoji": "👍",
+      "unprompted": false,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 10,
+      "kind": "message",
+      "text": "ok",
+      "unprompted": false,
+      "room": "general",
+      "t": 2700
+    }
+  ]
+}

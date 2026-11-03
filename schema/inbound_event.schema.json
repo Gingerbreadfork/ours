@@ -1,0 +1,692 @@
+{
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "ready"
+        },
+        "platform": {
+          "$ref": "#/$defs/Platform"
+        },
+        "me": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "me_name": {
+          "type": "string"
+        },
+        "capabilities": {
+          "$ref": "#/$defs/Capabilities",
+          "default": {
+            "reactions": false,
+            "threads": false,
+            "polls": false,
+            "dms": false,
+            "edit": false,
+            "delete": false,
+            "pin": false,
+            "history": false,
+            "timezones": false,
+            "external_flag": false,
+            "typing": false,
+            "reaction_set": null
+          }
+        }
+      },
+      "required": [
+        "type",
+        "platform",
+        "me",
+        "me_name"
+      ],
+      "description": "The connector is up and knows who the agent is on this platform."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "room_sync"
+        },
+        "room": {
+          "$ref": "#/$defs/Room"
+        },
+        "members": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Member"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "members"
+      ],
+      "description": "A room and its full membership, sent on join and whenever it changes."
+    },
+    {
+      "$ref": "#/$defs/Message",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "message"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "$ref": "#/$defs/Message",
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "message_edited"
+        }
+      },
+      "required": [
+        "type"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "message_deleted"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "id": {
+          "$ref": "#/$defs/PlatformMessageId"
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "id"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "reaction_added"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "emoji": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/Instant"
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "message",
+        "user",
+        "emoji",
+        "at"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "reaction_removed"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "emoji": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/Instant"
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "message",
+        "user",
+        "emoji",
+        "at"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "member_joined"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "member": {
+          "$ref": "#/$defs/Member"
+        },
+        "at": {
+          "$ref": "#/$defs/Instant"
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "member",
+        "at"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "member_left"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "at": {
+          "$ref": "#/$defs/Instant"
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "user",
+        "at"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "member_updated"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "member": {
+          "$ref": "#/$defs/Member"
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "member"
+      ]
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "action_result"
+        },
+        "id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "ok": {
+          "type": "boolean"
+        },
+        "message": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The message the action produced, when it produced one."
+        },
+        "error": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "type",
+        "id",
+        "ok"
+      ],
+      "description": "The outcome of an `Outbound` action, so the engine learns the ids of\nwhat it sent and whether a send failed."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "poll_vote"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId",
+          "description": "The message that carries the poll."
+        },
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "option": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Zero-based, in the order the options were given."
+        },
+        "added": {
+          "type": "boolean"
+        },
+        "at": {
+          "$ref": "#/$defs/Instant"
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "message",
+        "user",
+        "option",
+        "added",
+        "at"
+      ],
+      "description": "A vote on a native poll the agent created, or its removal."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "poll_ended"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "counts": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "uint32",
+            "minimum": 0
+          },
+          "description": "Vote counts per option, in order."
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "message",
+        "counts"
+      ],
+      "description": "A native poll finished on the platform's side."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "history"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Message"
+          }
+        }
+      },
+      "required": [
+        "type",
+        "room",
+        "messages"
+      ],
+      "description": "History fetched on request, oldest first."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "type": {
+          "type": "string",
+          "const": "disconnected"
+        },
+        "platform": {
+          "$ref": "#/$defs/Platform"
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "type",
+        "platform",
+        "reason"
+      ]
+    }
+  ],
+  "description": "Everything a platform can tell the engine.",
+  "title": "InboundEvent",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Platform": {
+      "type": "string",
+      "enum": [
+        "discord",
+        "slack",
+        "telegram",
+        "matrix",
+        "mattermost",
+        "signal",
+        "teams",
+        "whats_app",
+        "sim"
+      ],
+      "description": "A chat platform a connector speaks. `Sim` is the in-memory connector\nused by tests and the replay harness."
+    },
+    "PlatformUserId": {
+      "type": "string",
+      "description": "A user as the platform identifies them. Never a display name."
+    },
+    "Capabilities": {
+      "type": "object",
+      "properties": {
+        "reactions": {
+          "type": "boolean"
+        },
+        "threads": {
+          "type": "boolean"
+        },
+        "polls": {
+          "type": "boolean"
+        },
+        "dms": {
+          "type": "boolean"
+        },
+        "edit": {
+          "type": "boolean"
+        },
+        "delete": {
+          "type": "boolean"
+        },
+        "pin": {
+          "type": "boolean"
+        },
+        "history": {
+          "type": "boolean"
+        },
+        "timezones": {
+          "type": "boolean",
+          "description": "The platform tells us members' timezones."
+        },
+        "external_flag": {
+          "type": "boolean",
+          "description": "The platform marks external or guest accounts."
+        },
+        "typing": {
+          "type": "boolean",
+          "description": "The platform can show that the agent is writing.",
+          "default": false
+        },
+        "reaction_set": {
+          "type": [
+            "array",
+            "null"
+          ],
+          "items": {
+            "type": "string"
+          },
+          "description": "The only reactions the platform allows, when it restricts them\n(Telegram); None means any emoji. The engine substitutes from this\nset for the reactions it relies on.",
+          "default": null
+        }
+      },
+      "required": [
+        "reactions",
+        "threads",
+        "polls",
+        "dms",
+        "edit",
+        "delete",
+        "pin",
+        "history",
+        "timezones",
+        "external_flag"
+      ],
+      "description": "What a connector can do. The engine falls back where a platform lacks\nsomething (reaction ballots where there are no polls)."
+    },
+    "Room": {
+      "type": "object",
+      "properties": {
+        "platform": {
+          "$ref": "#/$defs/Platform"
+        },
+        "id": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/RoomKind"
+        },
+        "parent": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For threads, the room they hang off."
+        },
+        "container": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The server, workspace or group the room belongs to on the platform."
+        }
+      },
+      "required": [
+        "platform",
+        "id",
+        "kind"
+      ]
+    },
+    "PlatformRoomId": {
+      "type": "string",
+      "description": "A room (channel, DM, thread) as the platform identifies it."
+    },
+    "RoomKind": {
+      "type": "string",
+      "enum": [
+        "channel",
+        "dm",
+        "thread"
+      ]
+    },
+    "Member": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "display_name": {
+          "type": "string"
+        },
+        "platform_role": {
+          "$ref": "#/$defs/PlatformRole"
+        },
+        "is_bot": {
+          "type": "boolean"
+        },
+        "timezone": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "IANA zone name when the platform knows it."
+        }
+      },
+      "required": [
+        "id",
+        "display_name",
+        "platform_role",
+        "is_bot"
+      ]
+    },
+    "PlatformRole": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "owner",
+            "admin",
+            "moderator",
+            "regular"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "external",
+          "description": "Marked external or guest by the platform (Slack Connect, guest accounts)."
+        }
+      ],
+      "description": "What the platform itself says about a user in a room. Connectors report\nthis; the engine maps it to a `Role` through the group's profile."
+    },
+    "PlatformMessageId": {
+      "type": "string",
+      "description": "A message as the platform identifies it; the unit of provenance."
+    },
+    "Instant": {
+      "type": "string",
+      "format": "date-time",
+      "description": "An RFC 3339 timestamp in UTC"
+    },
+    "Attachment": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "url": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "name": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "kind"
+      ]
+    },
+    "Message": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "author": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "text": {
+          "type": "string"
+        },
+        "at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "reply_to": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "mentions": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlatformUserId"
+          }
+        },
+        "mentions_me": {
+          "type": "boolean",
+          "description": "The agent was mentioned, by handle or by platform mention."
+        },
+        "attachments": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Attachment"
+          }
+        },
+        "edited": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "id",
+        "room",
+        "author",
+        "text",
+        "at",
+        "mentions",
+        "mentions_me",
+        "attachments",
+        "edited"
+      ]
+    },
+    "ActionId": {
+      "type": "string",
+      "description": "An outbound action the engine asked a connector to perform."
+    }
+  }
+}

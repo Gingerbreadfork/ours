@@ -1,0 +1,22 @@
+{
+  "scenario": "print-run",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "Got it, going with Beacon.",
+      "unprompted": false,
+      "room": "general",
+      "t": 480
+    },
+    {
+      "turn": 5,
+      "kind": "message",
+      "text": "I didn't go with Acme. Jo told me to go with Beacon and I confirmed that.",
+      "unprompted": false,
+      "room": "general",
+      "t": 900
+    }
+  ]
+}

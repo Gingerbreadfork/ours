@@ -1,0 +1,66 @@
+{
+  "scenario": "email-undo",
+  "agent": "Ours, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "message",
+      "text": "Emailing legal@example.com in 10m: Launch date change and print run. Undo?",
+      "unprompted": false,
+      "room": "general",
+      "t": 0
+    },
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "the email to legal@example.com: Launch date change and print run",
+      "action": "hold_mail",
+      "t": 0
+    },
+    {
+      "turn": 1,
+      "kind": "message",
+      "text": "Not sent.",
+      "unprompted": false,
+      "room": "general",
+      "t": 120
+    },
+    {
+      "turn": 1,
+      "kind": "action",
+      "text": "undid the email to legal@example.com: Launch date change and print run",
+      "action": "undo",
+      "t": 120
+    },
+    {
+      "turn": 2,
+      "kind": "message",
+      "text": "That's one for Priya.",
+      "unprompted": false,
+      "room": "general",
+      "t": 300
+    },
+    {
+      "turn": 2,
+      "kind": "action",
+      "text": "That's one for Priya.",
+      "action": "decline",
+      "t": 300
+    },
+    {
+      "turn": 2,
+      "kind": "dm",
+      "text": "Sam in #general asked: email legal@example.com and tell them we're finished. React ✅ and I'll treat it as yours.",
+      "unprompted": false,
+      "to": "priya",
+      "t": 300
+    },
+    {
+      "turn": 2,
+      "kind": "action",
+      "text": "Noa, email legal@example.com and tell them we're finished",
+      "action": "defer_to_lead",
+      "t": 300
+    }
+  ]
+}

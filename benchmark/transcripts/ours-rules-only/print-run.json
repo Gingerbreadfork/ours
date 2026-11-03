@@ -1,0 +1,29 @@
+{
+  "scenario": "print-run",
+  "agent": "Ours, rules only",
+  "entries": [
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "That's one for Priya or Sam.",
+      "unprompted": false,
+      "room": "general",
+      "t": 480
+    },
+    {
+      "turn": 3,
+      "kind": "action",
+      "text": "That's one for Priya or Sam.",
+      "action": "decline",
+      "t": 480
+    },
+    {
+      "turn": 5,
+      "kind": "message",
+      "text": "ok",
+      "unprompted": false,
+      "room": "general",
+      "t": 900
+    }
+  ]
+}

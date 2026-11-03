@@ -1,0 +1,22 @@
+{
+  "scenario": "tuesday-commitment",
+  "agent": "Ours, rules only",
+  "entries": [
+    {
+      "turn": 3,
+      "kind": "dm",
+      "text": "ok",
+      "unprompted": false,
+      "to": "alex",
+      "t": 183600
+    },
+    {
+      "turn": 4,
+      "kind": "dm",
+      "text": "ok",
+      "unprompted": false,
+      "to": "alex",
+      "t": 280800
+    }
+  ]
+}

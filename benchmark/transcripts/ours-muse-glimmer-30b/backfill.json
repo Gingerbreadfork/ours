@@ -1,0 +1,59 @@
+{
+  "scenario": "backfill",
+  "agent": "Ours, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "message",
+      "text": "Reading the last 90 days of this room; say forget that on anything I get wrong.",
+      "unprompted": false,
+      "room": "general",
+      "t": 0
+    },
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "Jo diet vegetarian",
+      "action": "store_fact",
+      "t": 0
+    },
+    {
+      "turn": 0,
+      "kind": "message",
+      "text": "Read 29 messages back to 2026-09-03: kept 3 facts. Tell me what's wrong.",
+      "unprompted": false,
+      "room": "general",
+      "t": 0
+    },
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "Alex is vegetarian true",
+      "action": "store_fact",
+      "t": 0
+    },
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "Alex birthday 3 May",
+      "action": "store_fact",
+      "t": 0
+    },
+    {
+      "turn": 1,
+      "kind": "message",
+      "text": "Yes. Alex said \"I'm vegetarian these days\" and Jo said \"I'm vegetarian these days\".\nSource: Alex in #general, 2026-10-03\nSource: Jo in #general, 2026-09-13",
+      "unprompted": false,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 2,
+      "kind": "message",
+      "text": "Alex, you said your birthday is 3 May.\nSource: Alex in #general, 2026-10-03",
+      "unprompted": false,
+      "room": "general",
+      "t": 660
+    }
+  ]
+}

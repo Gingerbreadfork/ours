@@ -1,0 +1,22 @@
+{
+  "scenario": "wednesday-tab",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 6,
+      "kind": "message",
+      "text": "I only see the wine at $38 mentioned. I don't have the rest of the bill to calculate the tab.",
+      "unprompted": false,
+      "room": "general",
+      "t": 900
+    },
+    {
+      "turn": 7,
+      "kind": "message",
+      "text": "I don't have enough information to calculate what you owe. I only know about the $38 wine, not the total bill or how to split it.",
+      "unprompted": false,
+      "room": "general",
+      "t": 960
+    }
+  ]
+}

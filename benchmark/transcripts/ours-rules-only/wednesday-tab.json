@@ -1,0 +1,22 @@
+{
+  "scenario": "wednesday-tab",
+  "agent": "Ours, rules only",
+  "entries": [
+    {
+      "turn": 6,
+      "kind": "message",
+      "text": "The tab is empty.",
+      "unprompted": false,
+      "room": "general",
+      "t": 900
+    },
+    {
+      "turn": 7,
+      "kind": "message",
+      "text": "The tab is empty.",
+      "unprompted": false,
+      "room": "general",
+      "t": 960
+    }
+  ]
+}

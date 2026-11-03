@@ -1,0 +1,29 @@
+# Podman quadlet. Copy to /etc/containers/systemd/ours.container, then
+#   systemctl daemon-reload && systemctl start ours
+# Put data_dir = "/data" in /etc/ours/ours.toml and the tokens in
+# /etc/ours/env (see env.example).
+[Unit]
+Description=Ours, the group agent
+Wants=network-online.target
+After=network-online.target
+
+[Container]
+Image=ghcr.io/gingerbreadfork/ours:0.1.0-rc.1
+ContainerName=ours
+Volume=/etc/ours/ours.toml:/etc/ours/ours.toml:ro,Z
+Volume=ours-data:/data:U
+EnvironmentFile=/etc/ours/env
+PublishPort=7777:7777
+ReadOnly=true
+Tmpfs=/tmp
+NoNewPrivileges=true
+DropCapability=ALL
+StopSignal=SIGINT
+StopTimeout=30
+
+[Service]
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

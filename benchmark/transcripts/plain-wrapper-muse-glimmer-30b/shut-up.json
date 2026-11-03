@@ -1,0 +1,30 @@
+{
+  "scenario": "shut-up",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "message",
+      "text": "Fri works better for me. Does 7pm work?",
+      "unprompted": false,
+      "room": "general",
+      "t": 0
+    },
+    {
+      "turn": 5,
+      "kind": "message",
+      "text": "Did I say something? I'm just talking about dinner.",
+      "unprompted": false,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 10,
+      "kind": "message",
+      "text": "Today is Thursday, October 23, 2025. Why do you ask?",
+      "unprompted": false,
+      "room": "general",
+      "t": 2700
+    }
+  ]
+}

@@ -1,0 +1,52 @@
+{
+  "scenario": "what-do-you-know",
+  "agent": "Ours, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "Sam has allergy peanuts",
+      "action": "store_fact",
+      "t": 0
+    },
+    {
+      "turn": 1,
+      "kind": "action",
+      "text": "Jo allergic to peanuts",
+      "action": "store_fact",
+      "t": 60
+    },
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "I'll DM you.",
+      "unprompted": false,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 3,
+      "kind": "dm",
+      "text": "Everything I hold about you:\nLasting:\nSam has allergy peanuts (Sam in #general, 2026-11-02, msg m0)\nI also keep the hour you usually reply, for timing only.\nSay forget me to clear all of it.",
+      "unprompted": false,
+      "to": "sam",
+      "t": 600
+    },
+    {
+      "turn": 4,
+      "kind": "dm",
+      "text": "Everything I hold about you:\nLasting:\nSam has allergy peanuts (Sam in #general, 2026-11-02, msg m0)\nI also keep the hour you usually reply, for timing only.\nSay forget me to clear all of it.",
+      "unprompted": false,
+      "to": "sam",
+      "t": 660
+    },
+    {
+      "turn": 5,
+      "kind": "dm",
+      "text": "I don't hold anything about you.\nI also keep the hour you usually reply, for timing only.\nSay forget me to clear all of it.",
+      "unprompted": false,
+      "to": "priya",
+      "t": 720
+    }
+  ]
+}

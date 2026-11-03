@@ -1,0 +1,17 @@
+[package]
+name = "ours-connector"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "The Connector trait every platform adapter implements, and an in-memory connector for tests"
+
+[dependencies]
+ours-types = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+
+[lints]
+workspace = true

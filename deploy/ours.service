@@ -1,0 +1,50 @@
+[Unit]
+Description=Ours, the group agent
+Documentation=https://github.com/Gingerbreadfork/ours
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=simple
+ExecStart=/usr/local/bin/ours --config /etc/ours/ours.toml run
+# Tokens and passwords: see deploy/env.example. Set data_dir to /var/lib/ours.
+EnvironmentFile=/etc/ours/env
+DynamicUser=yes
+StateDirectory=ours
+ReadWritePaths=/var/lib/ours
+WorkingDirectory=/var/lib/ours
+
+# SIGINT stops the agent the same way SIGTERM does: every group writes a
+# snapshot and the process exits. It gives up after ten seconds.
+KillSignal=SIGINT
+TimeoutStopSec=30
+# A connector that gives up for good makes the agent exit with an error,
+# so on-failure brings it back after a pause; a signal stop stays stopped.
+Restart=on-failure
+RestartSec=5
+
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+NoNewPrivileges=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectKernelLogs=yes
+ProtectControlGroups=yes
+ProtectClock=yes
+ProtectHostname=yes
+RestrictNamespaces=yes
+RestrictRealtime=yes
+RestrictSUIDSGID=yes
+RestrictAddressFamilies=AF_INET AF_INET6 AF_UNIX
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+SystemCallFilter=~@privileged @resources
+CapabilityBoundingSet=
+UMask=0077
+
+[Install]
+WantedBy=multi-user.target

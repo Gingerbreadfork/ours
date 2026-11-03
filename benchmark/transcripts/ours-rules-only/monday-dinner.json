@@ -1,0 +1,44 @@
+{
+  "scenario": "monday-dinner",
+  "agent": "Ours, rules only",
+  "entries": [
+    {
+      "turn": 8,
+      "kind": "message",
+      "text": "🗳️ Dinner: Thursday or Friday?\n1️⃣ Thursday the 12th\n2️⃣ Friday the 13th",
+      "unprompted": true,
+      "room": "general",
+      "t": 86520
+    },
+    {
+      "turn": 8,
+      "kind": "action",
+      "text": "Dinner",
+      "action": "open_poll",
+      "t": 86520
+    },
+    {
+      "turn": 13,
+      "kind": "message",
+      "text": "Thursday it is, 4 to 1. Holding Thursday the 12th.",
+      "unprompted": false,
+      "room": "general",
+      "t": 88200
+    },
+    {
+      "turn": 13,
+      "kind": "action",
+      "text": "Thursday",
+      "action": "record_decision",
+      "t": 88200
+    },
+    {
+      "turn": 14,
+      "kind": "message",
+      "text": "Noted. Four still can. Keep Thursday the 12th, or re-vote?",
+      "unprompted": false,
+      "room": "general",
+      "t": 90000
+    }
+  ]
+}

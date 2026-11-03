@@ -1,0 +1,46 @@
+{
+  "scenario": "guest",
+  "agent": "Plain wrapper, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 2,
+      "kind": "message",
+      "text": "The client review is Thursday at 2pm. The invite is already out.",
+      "unprompted": false,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "I can move it to Friday and update the invite. What time works for you?",
+      "unprompted": false,
+      "room": "general",
+      "t": 660
+    },
+    {
+      "turn": 4,
+      "kind": "message",
+      "text": "Congrats on the promotion! What time Friday works for the review?",
+      "unprompted": false,
+      "room": "general",
+      "t": 720
+    },
+    {
+      "turn": 5,
+      "kind": "message",
+      "text": "I haven't seen a team update on the budget yet. I'll check with Sam and get back to you.",
+      "unprompted": false,
+      "room": "general",
+      "t": 780
+    },
+    {
+      "turn": 6,
+      "kind": "message",
+      "text": "I work with both of you. Sam owns the review scheduling, so I'll confirm with him before changing the invite.",
+      "unprompted": false,
+      "room": "general",
+      "t": 840
+    }
+  ]
+}

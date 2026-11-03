@@ -1,0 +1,37 @@
+{
+  "scenario": "wednesday-tab",
+  "agent": "Ours, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 5,
+      "kind": "message",
+      "text": "Added. Tab: Priya 38 (wine) split five ways.",
+      "unprompted": true,
+      "room": "general",
+      "t": 600
+    },
+    {
+      "turn": 5,
+      "kind": "action",
+      "text": "wine",
+      "action": "ledger_line",
+      "t": 600
+    },
+    {
+      "turn": 6,
+      "kind": "message",
+      "text": "Tab (USD): Priya +30.40, Alex -7.60, Jo -7.60, Kim -7.60, Sam -7.60.",
+      "unprompted": false,
+      "room": "general",
+      "t": 900
+    },
+    {
+      "turn": 7,
+      "kind": "message",
+      "text": "You owe 7.60.\nTab (USD): Priya +30.40, Alex -7.60, Jo -7.60, Kim -7.60, Sam -7.60.",
+      "unprompted": false,
+      "room": "general",
+      "t": 960
+    }
+  ]
+}

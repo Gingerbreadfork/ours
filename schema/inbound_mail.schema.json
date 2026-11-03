@@ -1,0 +1,59 @@
+{
+  "type": "object",
+  "properties": {
+    "from": {
+      "type": "string"
+    },
+    "from_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "subject": {
+      "type": "string"
+    },
+    "body": {
+      "type": "string",
+      "description": "Plain text, quoted replies stripped where the parser could."
+    },
+    "at": {
+      "$ref": "#/$defs/Instant"
+    },
+    "message_id": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "in_reply_to": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "The message ids this replies to, newest first, for matching against\nmail the group sent."
+    },
+    "authenticated": {
+      "type": "boolean",
+      "description": "DKIM and SPF both passed; otherwise the sender is less trusted."
+    }
+  },
+  "required": [
+    "from",
+    "subject",
+    "body",
+    "at",
+    "in_reply_to",
+    "authenticated"
+  ],
+  "description": "Mail that reached the group's address.",
+  "title": "InboundMail",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Instant": {
+      "type": "string",
+      "format": "date-time",
+      "description": "An RFC 3339 timestamp in UTC"
+    }
+  }
+}

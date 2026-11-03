@@ -1,0 +1,30 @@
+{
+  "name": "wednesday-tab",
+  "kind": "friends",
+  "description": "Five friends. Someone says what they paid; the agent adds it to the tab split five ways and says so in one line, then answers what the tab is and what one person owes.",
+  "source": "DESIGN.md section 6, Wednesday, and section 11",
+  "start": "2026-11-04T12:00:00Z",
+  "members": [
+    {"id": "sam", "name": "Sam", "role": "lead"},
+    {"id": "priya", "name": "Priya", "role": "lead"},
+    {"id": "jo", "name": "Jo", "role": "lead"},
+    {"id": "alex", "name": "Alex", "role": "lead"},
+    {"id": "kim", "name": "Kim", "role": "lead"}
+  ],
+  "turns": [
+    {"t": 0, "from": "priya", "text": "hello"},
+    {"t": 60, "from": "sam", "text": "hey"},
+    {"t": 120, "from": "jo", "text": "hiya"},
+    {"t": 180, "from": "alex", "text": "afternoon"},
+    {"t": 240, "from": "kim", "text": "hi"},
+    {"t": 600, "from": "priya", "text": "I got the wine, 38"},
+    {"t": 900, "from": "alex", "text": "Noa, what's the tab?"},
+    {"t": 960, "from": "jo", "text": "Noa, what do I owe?"}
+  ],
+  "expect": {
+    "0-4": {"speak": "must_not", "react": "must_not"},
+    "5": {"speak": "must", "action": "ledger_line", "content_must_mention": ["38", "five|7.60"]},
+    "6": {"speak": "must", "content_must_mention": ["Priya", "30.40|38"]},
+    "7": {"speak": "must", "content_must_mention": ["7.60"]}
+  }
+}

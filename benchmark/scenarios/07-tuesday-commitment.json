@@ -1,0 +1,27 @@
+{
+  "name": "tuesday-commitment",
+  "kind": "team",
+  "description": "A promise made in passing is kept without a word in the channel, followed up by DM before it is due, moved when the person says so, and closed when they say it is done.",
+  "source": "DESIGN.md section 6, A week at work, Tuesday",
+  "start": "2026-11-03T09:00:00Z",
+  "members": [
+    {"id": "priya", "name": "Priya", "role": "lead"},
+    {"id": "sam", "name": "Sam", "role": "member"},
+    {"id": "alex", "name": "Alex", "role": "member"},
+    {"id": "jo", "name": "Jo", "role": "member"}
+  ],
+  "turns": [
+    {"t": 0, "from": "alex", "text": "morning all"},
+    {"t": 300, "from": "alex", "text": "I'll have the draft to legal by Thursday"},
+    {"t": 600, "from": "sam", "text": "nice one"},
+    {"t": 183600, "from": "alex", "text": "Friday", "room": "dm"},
+    {"t": 280800, "from": "alex", "text": "done", "room": "dm"}
+  ],
+  "expect": {
+    "0": {"speak": "must_not", "react": "must_not"},
+    "1": {"speak": "must_not", "react": "may", "action": "store_commitment", "note": "a 📌 at most"},
+    "2": {"speak": "may", "dm": "must", "content_must_mention": ["draft"], "note": "a DM to Alex before it is due; the channel hears of it only in its digest"},
+    "3": {"speak": "must", "content_must_mention": ["fri"]},
+    "4": {"speak": "must", "content_must_mention": ["done"]}
+  }
+}

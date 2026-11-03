@@ -1,0 +1,14 @@
+target/
+target-*/
+*.db
+*.db-wal
+*.db-shm
+/data
+/.env
+ours.toml
+!ours.example.toml
+node_modules
+/dist
+CLAUDE.md
+BUSINESS.md
+__pycache__/

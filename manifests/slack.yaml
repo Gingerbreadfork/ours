@@ -1,0 +1,86 @@
+# Slack app manifest for Ours.
+#
+# 1. Go to https://api.slack.com/apps, choose "Create New App", then
+#    "From an app manifest", pick the workspace and paste this file.
+#    Change display_information.name to what people should see in the app
+#    directory, and bot_user.display_name to the agent's name (keep it the
+#    same as agent_name in ours.toml).
+# 2. Install the app to the workspace (Install App in the sidebar).
+# 3. The bot token: OAuth & Permissions, "Bot User OAuth Token", starting
+#    xoxb-. It goes in `token` in ours.toml, or OURS_SLACK_BOT_TOKEN.
+# 4. The app-level token: Basic Information, "App-Level Tokens",
+#    "Generate Token and Scopes", add the connections:write scope. It starts
+#    xapp- and goes in `app_token`, or OURS_SLACK_APP_TOKEN. Socket Mode
+#    needs it; without connections:write the connector cannot connect.
+# 5. Invite the agent to each channel it should be in: /invite @Noa. Slack
+#    only sends messages, reactions and joins for channels it is a member
+#    of. DMs work without an invite.
+#
+# Socket Mode is on, so the host needs no public URL and no request URL.
+
+_metadata:
+  major_version: 1
+  minor_version: 1
+display_information:
+  name: Ours
+  description: A member of the group that remembers, decides and follows up.
+  background_color: "#2f3b52"
+features:
+  app_home:
+    home_tab_enabled: false
+    messages_tab_enabled: true
+    messages_tab_read_only_enabled: false
+  bot_user:
+    display_name: Noa
+    always_online: true
+oauth_config:
+  scopes:
+    bot:
+      - channels:history
+      - channels:read
+      - groups:history
+      - groups:read
+      - im:history
+      - im:read
+      - im:write
+      - mpim:history
+      - mpim:read
+      - mpim:write
+      - chat:write
+      - reactions:read
+      - reactions:write
+      - pins:write
+      - users:read
+      - usergroups:read
+      - files:read
+settings:
+  event_subscriptions:
+    bot_events:
+      - message.channels
+      - message.groups
+      - message.im
+      - message.mpim
+      - reaction_added
+      - reaction_removed
+      - member_joined_channel
+      - member_left_channel
+      - channel_rename
+      - channel_archive
+      - channel_unarchive
+      - channel_deleted
+      - channel_left
+      - group_rename
+      - group_archive
+      - group_unarchive
+      - group_deleted
+      - group_left
+      - user_change
+      - team_join
+      - subteam_members_changed
+      - app_uninstalled
+      - tokens_revoked
+  interactivity:
+    is_enabled: false
+  org_deploy_enabled: false
+  socket_mode_enabled: true
+  token_rotation_enabled: false

@@ -1,0 +1,57 @@
+{
+  "scenario": "unanswered-question",
+  "agent": "Ours, muse-glimmer-30b",
+  "entries": [
+    {
+      "turn": 0,
+      "kind": "action",
+      "text": "Priya plans to meet at Hobson's on 2026-11-05 at 18:30",
+      "action": "store_fact",
+      "t": 0
+    },
+    {
+      "turn": 1,
+      "kind": "reaction",
+      "emoji": "🙋",
+      "unprompted": true,
+      "room": "general",
+      "t": 1260
+    },
+    {
+      "turn": 2,
+      "kind": "message",
+      "text": "Priya said half seven, so 7:30. That’s Thursday 5 Nov at Hobson’s.",
+      "unprompted": true,
+      "room": "general",
+      "t": 1500
+    },
+    {
+      "turn": 5,
+      "kind": "action",
+      "text": "Hobson's dinner date 2026-11-05",
+      "action": "store_fact",
+      "t": 2460
+    },
+    {
+      "turn": 5,
+      "kind": "action",
+      "text": "Hobson's dinner time 19:30",
+      "action": "store_fact",
+      "t": 2460
+    },
+    {
+      "turn": 5,
+      "kind": "action",
+      "text": "Hobson's dinner location Hobson's",
+      "action": "store_fact",
+      "t": 2460
+    },
+    {
+      "turn": 5,
+      "kind": "action",
+      "text": "Priya booked table at Hobson's",
+      "action": "store_fact",
+      "t": 2460
+    }
+  ]
+}

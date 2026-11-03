@@ -1,0 +1,3792 @@
+{
+  "type": "object",
+  "properties": {
+    "format": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0
+    },
+    "exported_at": {
+      "$ref": "#/$defs/Instant"
+    },
+    "group": {
+      "$ref": "#/$defs/GroupId"
+    },
+    "agent_name": {
+      "type": "string"
+    },
+    "kind": {
+      "$ref": "#/$defs/Kind"
+    },
+    "persona_name": {
+      "type": [
+        "string",
+        "null"
+      ]
+    },
+    "persona": {
+      "$ref": "#/$defs/Persona"
+    },
+    "profile": {
+      "$ref": "#/$defs/Profile"
+    },
+    "jobs": {
+      "$ref": "#/$defs/Jobs",
+      "description": "The scheduled jobs in effect, the kind's when nobody changed them."
+    },
+    "timezone": {
+      "type": "string"
+    },
+    "currency": {
+      "type": "string"
+    },
+    "model_label": {
+      "type": "string"
+    },
+    "decision_rule": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/CloseRule"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "description": "How new proposals close, when the group chose; else the kind's rule."
+    },
+    "legal_hold": {
+      "type": "boolean"
+    },
+    "legal_hold_since": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/Instant"
+        },
+        {
+          "type": "null"
+        }
+      ]
+    },
+    "retention_days": {
+      "type": "integer",
+      "format": "uint32",
+      "minimum": 0,
+      "description": "Days the action log is kept when there is no legal hold."
+    },
+    "rooms": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ExportRoom"
+      }
+    },
+    "members": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ExportMember"
+      }
+    },
+    "leads": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PlatformUserId"
+      }
+    },
+    "hosts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/PlatformUserId"
+      }
+    },
+    "scoped_leads": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ScopedLead"
+      }
+    },
+    "facts": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ExportFact"
+      }
+    },
+    "proposals": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Proposal"
+      }
+    },
+    "decisions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Decision"
+      }
+    },
+    "calendar": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Entry"
+      }
+    },
+    "commitments": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Commitment"
+      }
+    },
+    "ledger": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/LedgerLine"
+      }
+    },
+    "balances": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "integer",
+        "format": "int64"
+      },
+      "description": "Net balance per member in the tab's currency, in cents."
+    },
+    "settlements": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Settlement"
+      }
+    },
+    "payment_links": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    },
+    "recurrences": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/Recurrence"
+      }
+    },
+    "actions": {
+      "type": "array",
+      "items": {
+        "$ref": "#/$defs/ActionRecord"
+      }
+    },
+    "deferrals": {
+      "type": "object",
+      "additionalProperties": {
+        "$ref": "#/$defs/Deferral"
+      },
+      "description": "Requests waiting for a lead's ✅, by the agent's message that asks."
+    },
+    "charter": {
+      "type": "string",
+      "description": "The charter as Markdown."
+    }
+  },
+  "required": [
+    "format",
+    "exported_at",
+    "group",
+    "agent_name",
+    "kind",
+    "persona",
+    "profile",
+    "jobs",
+    "timezone",
+    "currency",
+    "model_label",
+    "legal_hold",
+    "retention_days",
+    "rooms",
+    "members",
+    "leads",
+    "hosts",
+    "scoped_leads",
+    "facts",
+    "proposals",
+    "decisions",
+    "calendar",
+    "commitments",
+    "ledger",
+    "balances",
+    "settlements",
+    "payment_links",
+    "recurrences",
+    "actions",
+    "deferrals",
+    "charter"
+  ],
+  "description": "Everything the JSON half carries.",
+  "title": "ExportData",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Instant": {
+      "type": "string",
+      "format": "date-time",
+      "description": "An RFC 3339 timestamp in UTC"
+    },
+    "GroupId": {
+      "type": "string",
+      "description": "A group: one memory, one charter, one SQLite file."
+    },
+    "Kind": {
+      "type": "string",
+      "enum": [
+        "friends",
+        "household",
+        "team",
+        "project",
+        "club",
+        "community",
+        "committee",
+        "cohort"
+      ],
+      "description": "The kind of group, which sets defaults and nothing else (DESIGN.md section 4)."
+    },
+    "Persona": {
+      "type": "object",
+      "properties": {
+        "voice": {
+          "type": "string",
+          "description": "One line on how it talks."
+        },
+        "traits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "never_jokes_about": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Subjects it never jokes about, on top of the hard rules."
+        },
+        "bits": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Running bits and in-jokes the group gave it, in the group's words.",
+          "default": []
+        }
+      },
+      "required": [
+        "voice",
+        "traits",
+        "never_jokes_about"
+      ],
+      "description": "How the agent sounds in one group. The dial lives in the profile."
+    },
+    "Profile": {
+      "type": "object",
+      "properties": {
+        "leads": {
+          "$ref": "#/$defs/LeadsRule"
+        },
+        "budget_per_hour": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Unprompted messages allowed in any rolling hour."
+        },
+        "budget_per_day": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Unprompted messages allowed per calendar day in the group's zone."
+        },
+        "speech_threshold": {
+          "type": "number",
+          "format": "double",
+          "description": "Attention score above which the agent speaks unprompted."
+        },
+        "hold_window_seconds": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "How long a tier-1 action waits before it leaves the group."
+        },
+        "dial": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "The persona dial, 0 to 3 (DESIGN.md section 16)."
+        },
+        "quiet_hours": {
+          "$ref": "#/$defs/QuietHours"
+        },
+        "working_hours": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkingHours"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "answer_window_seconds": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "How long a question may go unanswered before the agent raises a hand.",
+          "default": 1200
+        },
+        "observe_seconds": {
+          "type": "integer",
+          "format": "uint32",
+          "minimum": 0,
+          "description": "How long a new group is watched before the agent speaks unprompted.",
+          "default": 0
+        },
+        "jobs": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Jobs"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The scheduled jobs, once a lead has changed them; else the kind's.",
+          "default": null
+        },
+        "unprompted_outbound": {
+          "$ref": "#/$defs/UnpromptedOutbound",
+          "description": "Whether a tier-1 action nobody asked for may leave the group.",
+          "default": "propose"
+        },
+        "chime_threshold": {
+          "type": "number",
+          "format": "float",
+          "description": "The banter score at which it may chime in, at dial 2 and 3.",
+          "default": 0.699999988079071
+        },
+        "chimes_per_day": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint32",
+          "minimum": 0,
+          "description": "Chime-ins allowed per local day; unset follows the dial.",
+          "default": null
+        }
+      },
+      "required": [
+        "leads",
+        "budget_per_hour",
+        "budget_per_day",
+        "speech_threshold",
+        "hold_window_seconds",
+        "dial",
+        "quiet_hours"
+      ]
+    },
+    "LeadsRule": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "everyone",
+          "description": "Every member is a lead."
+        },
+        {
+          "type": "string",
+          "const": "admins",
+          "description": "Platform owners and admins."
+        },
+        {
+          "type": "string",
+          "const": "moderators",
+          "description": "Platform owners, admins and moderators."
+        },
+        {
+          "type": "string",
+          "const": "named",
+          "description": "Only the people in the leads list."
+        }
+      ],
+      "description": "Who is a lead without being named in the leads list (DESIGN.md section 5)."
+    },
+    "QuietHours": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "end": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "required": [
+        "start",
+        "end"
+      ],
+      "description": "Local hours in the group's zone when nothing unprompted is sent. The\nspan may wrap midnight."
+    },
+    "WorkingHours": {
+      "type": "object",
+      "properties": {
+        "start": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "end": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "weekdays_only": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "start",
+        "end",
+        "weekdays_only"
+      ],
+      "description": "Local hours in the group's zone when unprompted messages may be sent."
+    },
+    "Jobs": {
+      "type": "object",
+      "properties": {
+        "digest": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ClockTime"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When the daily digest goes out; none for no digest."
+        },
+        "day_of": {
+          "type": "boolean",
+          "description": "The one line on a day with something on the calendar."
+        }
+      },
+      "required": [
+        "day_of"
+      ],
+      "description": "The scheduled jobs a profile turns on (DESIGN.md section 4)."
+    },
+    "ClockTime": {
+      "type": "object",
+      "properties": {
+        "hour": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        },
+        "minute": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255
+        }
+      },
+      "required": [
+        "hour",
+        "minute"
+      ],
+      "description": "A local time of day in the group's zone."
+    },
+    "UnpromptedOutbound": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "never"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "do",
+          "description": "Do it, with the hold."
+        },
+        {
+          "type": "string",
+          "const": "propose",
+          "description": "DM a lead with a ✅ and do nothing until one comes."
+        }
+      ],
+      "description": "What the agent does when it, not a lead, wants something to leave the\ngroup (DESIGN.md section 13, \"Unprompted outbound\")."
+    },
+    "CloseRule": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "majority_of_active",
+          "description": "More than half of the active members chose one option."
+        },
+        {
+          "type": "string",
+          "const": "majority_of_voters",
+          "description": "The most votes among those who voted."
+        },
+        {
+          "type": "string",
+          "const": "unanimous",
+          "description": "Every active member chose the same option."
+        },
+        {
+          "type": "string",
+          "const": "lead_decides",
+          "description": "No ballot; views are kept and a lead's choice closes it."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "named_deciders": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/PlatformUserId"
+              }
+            }
+          },
+          "required": [
+            "named_deciders"
+          ],
+          "additionalProperties": false,
+          "description": "Only these people's votes count."
+        },
+        {
+          "type": "string",
+          "const": "whoever_is_coming",
+          "description": "Those who say they are coming decide."
+        }
+      ],
+      "description": "How a proposal closes (DESIGN.md section 10, \"Close\")."
+    },
+    "PlatformUserId": {
+      "type": "string",
+      "description": "A user as the platform identifies them. Never a display name."
+    },
+    "ExportRoom": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "name": {
+          "type": "string"
+        },
+        "dm": {
+          "type": "boolean"
+        },
+        "platform": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Platform"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "dm"
+      ]
+    },
+    "PlatformRoomId": {
+      "type": "string",
+      "description": "A room (channel, DM, thread) as the platform identifies it."
+    },
+    "Platform": {
+      "type": "string",
+      "enum": [
+        "discord",
+        "slack",
+        "telegram",
+        "matrix",
+        "mattermost",
+        "signal",
+        "teams",
+        "whats_app",
+        "sim"
+      ],
+      "description": "A chat platform a connector speaks. `Sim` is the in-memory connector\nused by tests and the replay harness."
+    },
+    "ExportMember": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "name": {
+          "type": "string"
+        },
+        "role": {
+          "$ref": "#/$defs/Role",
+          "description": "The best role they hold anywhere in the group."
+        },
+        "named_lead": {
+          "type": "boolean"
+        },
+        "host": {
+          "type": "boolean"
+        },
+        "rooms": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlatformRoomId"
+          },
+          "description": "The rooms other than DMs they are in."
+        },
+        "zone": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Their own zone when known; otherwise the group's applies."
+        },
+        "bot": {
+          "type": "boolean"
+        },
+        "reply_hour_kept": {
+          "type": "boolean",
+          "description": "Whether the hour they usually reply is kept, for timing only. The\nhour itself is never reported (DESIGN.md section 5)."
+        }
+      },
+      "required": [
+        "id",
+        "name",
+        "role",
+        "named_lead",
+        "host",
+        "rooms",
+        "bot",
+        "reply_hour_kept"
+      ]
+    },
+    "Role": {
+      "type": "string",
+      "enum": [
+        "guest",
+        "member",
+        "lead",
+        "host"
+      ],
+      "description": "Who a speaker is to the agent, resolved per room (DESIGN.md section 5)."
+    },
+    "ScopedLead": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "scope": {
+          "$ref": "#/$defs/Scope"
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Instant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "user",
+        "scope"
+      ],
+      "description": "A lead over one slice of the group (DESIGN.md section 5). Only room\nscopes grant anything yet; events and proposals arrive with decisions."
+    },
+    "Scope": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "room"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            }
+          },
+          "required": [
+            "type",
+            "room"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "event"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "proposal"
+            },
+            "id": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "id"
+          ]
+        }
+      ]
+    },
+    "ExportFact": {
+      "type": "object",
+      "properties": {
+        "scope": {
+          "type": "string",
+          "description": "\"said in the group\", \"said by Sam about themselves\", \"private to Sam\"."
+        },
+        "status": {
+          "type": "string",
+          "description": "\"lasting\", \"until 2026-11-14\", \"expired 2026-11-04\", \"forgotten 2026-11-03 (forget me)\"."
+        },
+        "fact": {
+          "$ref": "#/$defs/Fact"
+        }
+      },
+      "required": [
+        "scope",
+        "status",
+        "fact"
+      ],
+      "description": "A fact with who may hear it and where it stands, in words."
+    },
+    "Fact": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/FactId"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "subject_kind": {
+          "$ref": "#/$defs/SubjectKind"
+        },
+        "subject_user": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The member the subject names, when it names one."
+        },
+        "predicate": {
+          "type": "string"
+        },
+        "object": {
+          "type": "string"
+        },
+        "scope": {
+          "$ref": "#/$defs/FactScope"
+        },
+        "rooms": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/PlatformRoomId"
+          },
+          "description": "Every room it was seen in."
+        },
+        "sources": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Source"
+          },
+          "description": "The messages it came from; the first is the primary source."
+        },
+        "confidence": {
+          "type": "number",
+          "format": "float"
+        },
+        "first_seen": {
+          "$ref": "#/$defs/Instant",
+          "description": "When it was first said."
+        },
+        "last_confirmed": {
+          "$ref": "#/$defs/Instant",
+          "description": "When it was last said again or used without challenge."
+        },
+        "expires": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Instant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it stops being true; never for durable facts."
+        },
+        "starts": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Instant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When a span such as \"away 12 to 16\" starts; it holds from then until it expires.",
+          "default": null
+        },
+        "learned_at": {
+          "$ref": "#/$defs/Instant",
+          "description": "When the agent stored it."
+        },
+        "retracted": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Retraction"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The words that carry it."
+        }
+      },
+      "required": [
+        "id",
+        "subject",
+        "subject_kind",
+        "predicate",
+        "object",
+        "scope",
+        "rooms",
+        "sources",
+        "confidence",
+        "first_seen",
+        "last_confirmed",
+        "learned_at"
+      ]
+    },
+    "FactId": {
+      "type": "string",
+      "description": "A fact's id, minted from the group's sequence so replay gives the same one."
+    },
+    "SubjectKind": {
+      "type": "string",
+      "enum": [
+        "person",
+        "place",
+        "event",
+        "thing",
+        "group"
+      ],
+      "description": "What kind of thing a fact is about."
+    },
+    "FactScope": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "group",
+          "description": "Said in the group, or derived from what was."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "private": {
+              "$ref": "#/$defs/PlatformUserId"
+            }
+          },
+          "required": [
+            "private"
+          ],
+          "additionalProperties": false,
+          "description": "Said to the agent in a DM by this person; only ever used with them."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "self_stated": {
+              "$ref": "#/$defs/PlatformUserId"
+            }
+          },
+          "required": [
+            "self_stated"
+          ],
+          "additionalProperties": false,
+          "description": "This person said it about themselves in a room; repeated only in\ntheir own words."
+        }
+      ],
+      "description": "Who may hear a fact (DESIGN.md section 9, \"Shape\")."
+    },
+    "Source": {
+      "type": "object",
+      "properties": {
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "speaker": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "at": {
+          "$ref": "#/$defs/Instant"
+        }
+      },
+      "required": [
+        "room",
+        "message",
+        "speaker",
+        "at"
+      ],
+      "description": "One message a fact came from."
+    },
+    "PlatformMessageId": {
+      "type": "string",
+      "description": "A message as the platform identifies it; the unit of provenance."
+    },
+    "Retraction": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "reason": {
+          "type": "string",
+          "description": "\"superseded\", \"corrected\", \"forget that\", \"forget me\", \"message\ndeleted\", \"expired\" or \"undo\"."
+        },
+        "by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        }
+      },
+      "required": [
+        "at",
+        "reason"
+      ]
+    },
+    "Proposal": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ProposalId"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "thread_root": {
+          "$ref": "#/$defs/PlatformMessageId",
+          "description": "The message that started it; the ballot and the outcome reply to it."
+        },
+        "question": {
+          "type": "string",
+          "description": "\"Dinner: Thursday or Friday?\""
+        },
+        "topic": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What it is about, when known: \"Dinner\", \"Print run\".",
+          "default": null
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ProposalOption"
+          }
+        },
+        "opened_at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "deadline": {
+          "$ref": "#/$defs/Instant"
+        },
+        "rule": {
+          "$ref": "#/$defs/CloseRule"
+        },
+        "organiser": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "ballot": {
+          "$ref": "#/$defs/Ballot"
+        },
+        "nudged": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "integer",
+            "format": "uint8",
+            "minimum": 0,
+            "maximum": 255
+          },
+          "description": "Nudges sent, per member; never more than two."
+        },
+        "status": {
+          "$ref": "#/$defs/ProposalStatus"
+        },
+        "kind": {
+          "$ref": "#/$defs/ProposalKind"
+        },
+        "abstained": {
+          "type": "object",
+          "additionalProperties": {
+            "$ref": "#/$defs/PlatformMessageId"
+          },
+          "description": "Members who said they don't mind, with the message that said so.",
+          "default": {}
+        },
+        "remarks": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/PlatformUserId"
+              },
+              {
+                "$ref": "#/$defs/PlatformMessageId"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "Lines about the proposal that named no single option.",
+          "default": []
+        },
+        "quotes": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "string"
+          },
+          "description": "The words of every view and remark, kept for the record.",
+          "default": {}
+        },
+        "reacted": {
+          "type": "object",
+          "additionalProperties": {
+            "type": "array",
+            "items": {
+              "type": "integer",
+              "format": "uint",
+              "minimum": 0
+            }
+          },
+          "description": "Ballot reactions each member has on, oldest first; the last is the vote.",
+          "default": {}
+        },
+        "lapsed": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Deadlines passed with nothing to close on.",
+          "default": 0
+        },
+        "held": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Held"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The outcome line, held until the other proposal in the thread closes.",
+          "default": null
+        },
+        "reopens": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecisionId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The decision this one votes on again.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "room",
+        "thread_root",
+        "question",
+        "options",
+        "opened_at",
+        "deadline",
+        "rule",
+        "ballot",
+        "nudged",
+        "status",
+        "kind"
+      ]
+    },
+    "ProposalId": {
+      "type": "string",
+      "description": "A proposal's id, minted from the group's sequence."
+    },
+    "ProposalOption": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string",
+          "description": "As written, first letter capitalised: \"Thursday\", \"Acme\"."
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeMeaning"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What the option means in time, when it names one."
+        },
+        "echo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The date said back, as resolved in the speaker's zone.",
+          "default": null
+        },
+        "votes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/PlatformUserId"
+          }
+        },
+        "views": {
+          "type": "array",
+          "items": {
+            "type": "array",
+            "prefixItems": [
+              {
+                "$ref": "#/$defs/PlatformUserId"
+              },
+              {
+                "$ref": "#/$defs/PlatformMessageId"
+              }
+            ],
+            "minItems": 2,
+            "maxItems": 2
+          },
+          "description": "Messages that named this option, with who said them."
+        }
+      },
+      "required": [
+        "label",
+        "votes",
+        "views"
+      ]
+    },
+    "TimeMeaning": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "instant"
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            },
+            "has_time": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "at",
+            "has_time"
+          ],
+          "description": "One moment, with or without a time of day."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "span"
+            },
+            "start": {
+              "$ref": "#/$defs/Instant"
+            },
+            "end": {
+              "$ref": "#/$defs/Instant"
+            }
+          },
+          "required": [
+            "type",
+            "start",
+            "end"
+          ],
+          "description": "A range such as \"next week\" or \"12 to 16\"."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "recurrence"
+            },
+            "rrule": {
+              "type": "string"
+            },
+            "first": {
+              "$ref": "#/$defs/Instant"
+            }
+          },
+          "required": [
+            "type",
+            "rrule",
+            "first"
+          ],
+          "description": "A repeating schedule as an RFC 5545 RRULE."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "ambiguous"
+            },
+            "candidates": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/Instant"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "candidates"
+          ],
+          "description": "Two readings differ by more than a day and the difference matters."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Nothing temporal in the text."
+        }
+      ],
+      "description": "What a time expression turned out to mean."
+    },
+    "Ballot": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "reactions"
+            },
+            "message": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "emojis": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "emojis"
+          ],
+          "description": "The agent's own message with one emoji per option; the id is known\nonce the send comes back."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "native"
+            },
+            "message": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "A native poll on platforms that have them."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "none"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "No ballot: a lead decides."
+        }
+      ],
+      "description": "How people vote on a proposal."
+    },
+    "ProposalStatus": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "open"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "closed": {
+              "$ref": "#/$defs/DecisionId"
+            }
+          },
+          "required": [
+            "closed"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "string",
+          "const": "expired",
+          "description": "Closed without a decision: nobody voted, or no agreement."
+        }
+      ]
+    },
+    "DecisionId": {
+      "type": "string",
+      "description": "A decision record's id, minted from the group's sequence."
+    },
+    "ProposalKind": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "choice",
+          "description": "Pick one of the options."
+        },
+        {
+          "type": "string",
+          "const": "attendance",
+          "description": "One option; a vote means \"I'm in\"."
+        }
+      ]
+    },
+    "Held": {
+      "type": "object",
+      "properties": {
+        "full": {
+          "type": "string"
+        },
+        "part": {
+          "type": "string"
+        },
+        "tail": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "full",
+        "part"
+      ],
+      "description": "An outcome as one line on its own, as a part of a combined line, and\nthe sentence that follows either, such as \"Holding Thursday the 12th.\"."
+    },
+    "Decision": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/DecisionId"
+        },
+        "proposal": {
+          "$ref": "#/$defs/ProposalId"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "question": {
+          "type": "string"
+        },
+        "topic": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/ProposalKind"
+        },
+        "options": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/DecidedOption"
+          }
+        },
+        "winner": {
+          "type": "integer",
+          "format": "uint",
+          "minimum": 0,
+          "description": "The option chosen, by index."
+        },
+        "rule": {
+          "$ref": "#/$defs/CloseRule"
+        },
+        "outcome": {
+          "$ref": "#/$defs/Outcome"
+        },
+        "reason": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What the deciding lead gave as the reason, in their words."
+        },
+        "said": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/Said"
+          },
+          "description": "Who said what, in order, with the message each said it in."
+        },
+        "closed_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The message that closed it, when a person's words did."
+        },
+        "thread_root": {
+          "$ref": "#/$defs/PlatformMessageId",
+          "description": "The message that started it."
+        },
+        "opened_at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "closed_at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "open_seconds": {
+          "type": "integer",
+          "format": "int64"
+        }
+      },
+      "required": [
+        "id",
+        "proposal",
+        "room",
+        "question",
+        "kind",
+        "options",
+        "winner",
+        "rule",
+        "outcome",
+        "said",
+        "thread_root",
+        "opened_at",
+        "closed_at",
+        "open_seconds"
+      ]
+    },
+    "DecidedOption": {
+      "type": "object",
+      "properties": {
+        "label": {
+          "type": "string"
+        },
+        "when": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/TimeMeaning"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "echo": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "votes": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/PlatformUserId"
+          }
+        }
+      },
+      "required": [
+        "label",
+        "votes"
+      ]
+    },
+    "Outcome": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "count"
+            },
+            "counts": {
+              "type": "array",
+              "items": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              }
+            }
+          },
+          "required": [
+            "type",
+            "counts"
+          ],
+          "description": "Votes per option, in option order."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "decider"
+            },
+            "user": {
+              "$ref": "#/$defs/PlatformUserId"
+            }
+          },
+          "required": [
+            "type",
+            "user"
+          ]
+        }
+      ],
+      "description": "The count or the decider."
+    },
+    "Said": {
+      "type": "object",
+      "properties": {
+        "user": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "name": {
+          "type": "string",
+          "description": "Their name when it was said."
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "text": {
+          "type": "string"
+        },
+        "option": {
+          "type": [
+            "integer",
+            "null"
+          ],
+          "format": "uint",
+          "minimum": 0,
+          "description": "The option it named, if one."
+        }
+      },
+      "required": [
+        "user",
+        "name",
+        "message",
+        "text"
+      ]
+    },
+    "Entry": {
+      "type": "object",
+      "properties": {
+        "when": {
+          "$ref": "#/$defs/TimeMeaning"
+        },
+        "label": {
+          "type": "string",
+          "description": "\"Dinner\", or the option when there is no topic."
+        },
+        "decision": {
+          "$ref": "#/$defs/DecisionId"
+        },
+        "attendees": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/PlatformUserId"
+          },
+          "description": "Who is coming, as far as anyone has said."
+        },
+        "room": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "echo": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "How to say the date, as it was resolved.",
+          "default": null
+        },
+        "out": {
+          "type": "array",
+          "uniqueItems": true,
+          "items": {
+            "$ref": "#/$defs/PlatformUserId"
+          },
+          "description": "Who said they can't make it after it was decided.",
+          "default": []
+        }
+      },
+      "required": [
+        "when",
+        "label",
+        "decision",
+        "attendees"
+      ],
+      "description": "One dated outcome on the group's calendar."
+    },
+    "Commitment": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/CommitmentId"
+        },
+        "who": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "what": {
+          "type": "string",
+          "description": "What they will do, short: \"draft to legal\", \"bring dessert\"."
+        },
+        "for_whom": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ForWhom"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "due": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Instant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When it is due; a date alone is the end of that day."
+        },
+        "due_has_time": {
+          "type": "boolean"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecisionId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The calendar entry it belongs to, by its decision."
+        },
+        "status": {
+          "$ref": "#/$defs/CommitmentStatus"
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "created_at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "confidence": {
+          "type": "number",
+          "format": "float"
+        },
+        "quote": {
+          "type": [
+            "string",
+            "null"
+          ]
+        },
+        "ledger": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/LedgerId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The tab line it paid for, when it had an amount."
+        },
+        "nudged": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Nudges sent; never more than two."
+        },
+        "nudges": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlatformMessageId"
+          },
+          "description": "The nudge DMs, so a reply or reaction there finds this one.",
+          "default": []
+        },
+        "nudged_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Instant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "moved_by": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlatformMessageId"
+          },
+          "description": "Messages in the room that moved it.",
+          "default": []
+        },
+        "changed_at": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Instant"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "When its status or due date last changed, for the digest.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "who",
+        "what",
+        "due_has_time",
+        "status",
+        "source",
+        "created_at",
+        "confidence",
+        "nudged"
+      ]
+    },
+    "CommitmentId": {
+      "type": "string",
+      "description": "A commitment's id, minted from the group's sequence."
+    },
+    "ForWhom": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "member"
+            },
+            "user": {
+              "$ref": "#/$defs/PlatformUserId"
+            }
+          },
+          "required": [
+            "type",
+            "user"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "group"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ],
+      "description": "Whom a commitment is for."
+    },
+    "CommitmentStatus": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "open"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "done"
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            }
+          },
+          "required": [
+            "type",
+            "at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "moved"
+            },
+            "to": {
+              "$ref": "#/$defs/Instant"
+            },
+            "at": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/Instant"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "type",
+            "to"
+          ],
+          "description": "Slipped to `to` and still open."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "dropped"
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            },
+            "by": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformUserId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "at"
+          ]
+        }
+      ]
+    },
+    "LedgerId": {
+      "type": "string",
+      "description": "A ledger line's id, minted from the group's sequence."
+    },
+    "LedgerLine": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/LedgerId"
+        },
+        "payer": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "amount_cents": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "currency": {
+          "type": "string",
+          "description": "An ISO 4217 code."
+        },
+        "what": {
+          "type": "string"
+        },
+        "split": {
+          "$ref": "#/$defs/Split"
+        },
+        "event": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecisionId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The calendar entry it was for, by its decision."
+        },
+        "source": {
+          "$ref": "#/$defs/Source"
+        },
+        "created_at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "voided": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Voided"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "kind": {
+          "$ref": "#/$defs/LineKind",
+          "default": {
+            "type": "expense"
+          }
+        },
+        "posted": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The agent's line announcing it, where 🙅 and ✌️ change the split.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "payer",
+        "amount_cents",
+        "currency",
+        "what",
+        "split",
+        "source",
+        "created_at"
+      ]
+    },
+    "Split": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "equal"
+            },
+            "among": {
+              "type": "array",
+              "uniqueItems": true,
+              "items": {
+                "$ref": "#/$defs/PlatformUserId"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "among"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "shares"
+            },
+            "shares": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "format": "uint32",
+                "minimum": 0
+              }
+            }
+          },
+          "required": [
+            "type",
+            "shares"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "exact"
+            },
+            "amounts": {
+              "type": "object",
+              "additionalProperties": {
+                "type": "integer",
+                "format": "int64"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "amounts"
+          ],
+          "description": "Amounts in cents; what they leave over is the payer's own."
+        }
+      ],
+      "description": "Who owes what share of a line."
+    },
+    "Voided": {
+      "type": "object",
+      "properties": {
+        "at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "reason": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "at",
+        "reason"
+      ]
+    },
+    "LineKind": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "expense"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "settlement"
+            },
+            "settlement": {
+              "$ref": "#/$defs/SettlementId"
+            }
+          },
+          "required": [
+            "type",
+            "settlement"
+          ],
+          "description": "A confirmed transfer between two members, which zeroes what it paid."
+        }
+      ]
+    },
+    "SettlementId": {
+      "type": "string",
+      "description": "A settle-up transfer's id, minted from the group's sequence."
+    },
+    "Settlement": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/SettlementId"
+        },
+        "from": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "to": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "cents": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "currency": {
+          "type": "string"
+        },
+        "status": {
+          "$ref": "#/$defs/SettlementStatus"
+        },
+        "created_at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "asked": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The debtor's DM.",
+          "default": null
+        },
+        "confirm": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The creditor's DM.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "from",
+        "to",
+        "cents",
+        "currency",
+        "status",
+        "created_at"
+      ]
+    },
+    "SettlementStatus": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "asked"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "The debtor has been sent the amount and the link."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "paid"
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            }
+          },
+          "required": [
+            "type",
+            "at"
+          ],
+          "description": "The debtor says they paid; the creditor is asked to confirm."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "confirmed"
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            }
+          },
+          "required": [
+            "type",
+            "at"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "disputed"
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            },
+            "by": {
+              "$ref": "#/$defs/PlatformUserId"
+            }
+          },
+          "required": [
+            "type",
+            "at",
+            "by"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "superseded"
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            }
+          },
+          "required": [
+            "type",
+            "at"
+          ],
+          "description": "A later settle-up replaced it before anyone paid."
+        }
+      ]
+    },
+    "Recurrence": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RecurrenceId"
+        },
+        "rrule": {
+          "type": "string",
+          "description": "RFC 5545, without DTSTART: \"FREQ=MONTHLY;BYDAY=1TH\"."
+        },
+        "kind": {
+          "$ref": "#/$defs/RecurKind"
+        },
+        "next": {
+          "$ref": "#/$defs/Instant",
+          "description": "The next instance."
+        },
+        "lead_seconds": {
+          "type": "integer",
+          "format": "int64"
+        },
+        "last_opened": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/Instant"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "paused": {
+          "type": "boolean"
+        },
+        "label": {
+          "type": "string",
+          "description": "\"dinner\", as said."
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "source": {
+          "$ref": "#/$defs/PlatformMessageId",
+          "description": "The sentence that set it up; ballots hang off it."
+        },
+        "created_by": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "anchor": {
+          "$ref": "#/$defs/Instant",
+          "description": "The first instance, which INTERVAL counts from."
+        },
+        "has_time": {
+          "type": "boolean"
+        },
+        "open": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProposalId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The proposal the last instance opened.",
+          "default": null
+        },
+        "silent": {
+          "type": "integer",
+          "format": "uint8",
+          "minimum": 0,
+          "maximum": 255,
+          "description": "Instances in a row nobody answered.",
+          "default": 0
+        },
+        "took": {
+          "type": "array",
+          "items": {
+            "type": "integer",
+            "format": "int64"
+          },
+          "description": "How long past instances took to close, in seconds.",
+          "default": []
+        }
+      },
+      "required": [
+        "id",
+        "rrule",
+        "kind",
+        "next",
+        "lead_seconds",
+        "paused",
+        "label",
+        "room",
+        "source",
+        "created_by",
+        "anchor",
+        "has_time"
+      ]
+    },
+    "RecurrenceId": {
+      "type": "string",
+      "description": "A recurrence's id, minted from the group's sequence."
+    },
+    "RecurKind": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "proposal"
+            },
+            "question": {
+              "type": "string"
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "question",
+            "options"
+          ],
+          "description": "A ballot: who's in when there are no options."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "commitment"
+            },
+            "who": {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            "what": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "who",
+            "what"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "reminder"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ]
+        }
+      ],
+      "description": "What each instance is."
+    },
+    "ActionRecord": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "class": {
+          "$ref": "#/$defs/ActionClass"
+        },
+        "tier": {
+          "$ref": "#/$defs/Tier"
+        },
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "requested_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            {
+              "type": "null"
+            }
+          ]
+        },
+        "approved_by": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The lead whose ✅ carried out someone else's request."
+        },
+        "instruction": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The message that asked for it."
+        },
+        "at": {
+          "$ref": "#/$defs/Instant"
+        },
+        "status": {
+          "$ref": "#/$defs/ActionStatus"
+        },
+        "summary": {
+          "type": "string",
+          "description": "A noun phrase: \"the email to bookings@baitong.com: Table for five\"."
+        },
+        "undo": {
+          "$ref": "#/$defs/Undo"
+        },
+        "outcome": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "What came of it, such as the venue's reply."
+        },
+        "lines": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/PlatformMessageId"
+          },
+          "description": "The agent's messages about it, the one that announced it first.",
+          "default": []
+        },
+        "visible": {
+          "type": "boolean",
+          "description": "The room saw it, so a bare \"undo\" may mean it.",
+          "default": false
+        },
+        "outside": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OutsideAction"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "What it sends, or sent, outside the group.",
+          "default": null
+        },
+        "reference": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "The provider's reference once it was sent, kept after an undo so\nreplies still match.",
+          "default": null
+        },
+        "undoes": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ActionId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "For an undo, the record it took back.",
+          "default": null
+        }
+      },
+      "required": [
+        "id",
+        "class",
+        "tier",
+        "room",
+        "at",
+        "status",
+        "summary",
+        "undo"
+      ]
+    },
+    "ActionId": {
+      "type": "string",
+      "description": "An outbound action the engine asked a connector to perform."
+    },
+    "ActionClass": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "room_message",
+            "reaction",
+            "poll",
+            "pin",
+            "dm",
+            "fact",
+            "commitment",
+            "ledger_line",
+            "calendar_entry",
+            "mail"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "undo",
+          "description": "Taking another action back."
+        }
+      ],
+      "description": "What kind of thing an action did."
+    },
+    "Tier": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "free",
+          "description": "Done immediately, undone completely."
+        },
+        {
+          "type": "string",
+          "const": "windowed",
+          "description": "Done after a hold window; undone by a compensating action."
+        },
+        {
+          "type": "string",
+          "const": "irreversible",
+          "description": "Asks exactly one person first."
+        }
+      ],
+      "description": "Consequence tier of an action (DESIGN.md section 13)."
+    },
+    "ActionStatus": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "done",
+            "declined"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "held": {
+              "type": "object",
+              "properties": {
+                "until": {
+                  "$ref": "#/$defs/Instant"
+                }
+              },
+              "required": [
+                "until"
+              ]
+            }
+          },
+          "required": [
+            "held"
+          ],
+          "additionalProperties": false,
+          "description": "Waiting out its hold window, or for the one person who must say yes."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sending": {
+              "type": "object",
+              "properties": {
+                "since": {
+                  "$ref": "#/$defs/Instant"
+                }
+              },
+              "required": [
+                "since"
+              ]
+            }
+          },
+          "required": [
+            "sending"
+          ],
+          "additionalProperties": false,
+          "description": "Handed to the integration; the result has not come back."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "sent": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "$ref": "#/$defs/Instant"
+                },
+                "reference": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "at"
+              ]
+            }
+          },
+          "required": [
+            "sent"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "undone": {
+              "type": "object",
+              "properties": {
+                "at": {
+                  "$ref": "#/$defs/Instant"
+                },
+                "by": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/$defs/PlatformUserId"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "at"
+              ]
+            }
+          },
+          "required": [
+            "undone"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "failed": {
+              "type": "object",
+              "properties": {
+                "error": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "error"
+              ]
+            }
+          },
+          "required": [
+            "failed"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "Where an action stands."
+    },
+    "Undo": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "delete": {
+              "type": "object",
+              "properties": {
+                "room": {
+                  "$ref": "#/$defs/PlatformRoomId"
+                },
+                "message": {
+                  "$ref": "#/$defs/PlatformMessageId"
+                }
+              },
+              "required": [
+                "room",
+                "message"
+              ]
+            }
+          },
+          "required": [
+            "delete"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "unreact": {
+              "type": "object",
+              "properties": {
+                "room": {
+                  "$ref": "#/$defs/PlatformRoomId"
+                },
+                "message": {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                "emoji": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "room",
+                "message",
+                "emoji"
+              ]
+            }
+          },
+          "required": [
+            "unreact"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "retract_facts": {
+              "type": "object",
+              "properties": {
+                "ids": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/$defs/FactId"
+                  }
+                }
+              },
+              "required": [
+                "ids"
+              ]
+            }
+          },
+          "required": [
+            "retract_facts"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "drop_commitment": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/CommitmentId"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "drop_commitment"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "void_line": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "$ref": "#/$defs/LedgerId"
+                }
+              },
+              "required": [
+                "id"
+              ]
+            }
+          },
+          "required": [
+            "void_line"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "object",
+          "properties": {
+            "end_poll": {
+              "type": "object",
+              "properties": {
+                "proposal": {
+                  "$ref": "#/$defs/ProposalId"
+                }
+              },
+              "required": [
+                "proposal"
+              ]
+            }
+          },
+          "required": [
+            "end_poll"
+          ],
+          "additionalProperties": false,
+          "description": "End the poll and close its proposal as expired."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "remove_entry": {
+              "type": "object",
+              "properties": {
+                "decision": {
+                  "$ref": "#/$defs/DecisionId"
+                }
+              },
+              "required": [
+                "decision"
+              ]
+            }
+          },
+          "required": [
+            "remove_entry"
+          ],
+          "additionalProperties": false
+        },
+        {
+          "type": "string",
+          "const": "cancel_hold",
+          "description": "Still held: cancelled outright."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "cancel_mail": {
+              "type": "object",
+              "properties": {
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "to"
+              ]
+            }
+          },
+          "required": [
+            "cancel_mail"
+          ],
+          "additionalProperties": false,
+          "description": "Already sent: a compensating mail to the same address."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "none": {
+              "type": "object",
+              "properties": {
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "why"
+              ]
+            }
+          },
+          "required": [
+            "none"
+          ],
+          "additionalProperties": false
+        }
+      ],
+      "description": "How an action is taken back."
+    },
+    "OutsideAction": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/OutgoingMail",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "send_mail"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "cancel_mail"
+            },
+            "original": {
+              "$ref": "#/$defs/ActionId"
+            },
+            "mail": {
+              "$ref": "#/$defs/OutgoingMail"
+            }
+          },
+          "required": [
+            "type",
+            "original",
+            "mail"
+          ],
+          "description": "The compensation for a sent mail: a follow-up to the same address."
+        }
+      ],
+      "description": "What the binary carries out through an integration. Every variant has a\ncompensating variant or is its own compensation."
+    },
+    "OutgoingMail": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "in_reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ],
+      "description": "An email the group sends. `in_reply_to` threads it under an earlier\nmessage id so replies can be matched back."
+    },
+    "Deferral": {
+      "type": "object",
+      "properties": {
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "asked_by": {
+          "$ref": "#/$defs/PlatformUserId"
+        },
+        "request": {
+          "$ref": "#/$defs/PlatformMessageId",
+          "description": "The message that made the request."
+        },
+        "request_text": {
+          "type": "string"
+        },
+        "change": {
+          "$ref": "#/$defs/DeferredChange"
+        },
+        "expires": {
+          "$ref": "#/$defs/Instant"
+        }
+      },
+      "required": [
+        "room",
+        "asked_by",
+        "request",
+        "request_text",
+        "change",
+        "expires"
+      ],
+      "description": "A request from someone who may not make it, waiting for a lead's ✅."
+    },
+    "DeferredChange": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "leads"
+            },
+            "change": {
+              "$ref": "#/$defs/LeadChange"
+            }
+          },
+          "required": [
+            "type",
+            "change"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "actions"
+            },
+            "actions": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PlannedAction"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "actions"
+          ],
+          "description": "Planned actions the asker's role did not permit."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "setting"
+            },
+            "change": {
+              "$ref": "#/$defs/SettingChange"
+            }
+          },
+          "required": [
+            "type",
+            "change"
+          ],
+          "description": "A setting changed by sentence."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "memory"
+            },
+            "change": {
+              "$ref": "#/$defs/MemoryChange"
+            }
+          },
+          "required": [
+            "type",
+            "change"
+          ],
+          "description": "A change to facts that are not the asker's own."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "backfill"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Reading the room's history."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "undo"
+            },
+            "action": {
+              "$ref": "#/$defs/ActionId"
+            }
+          },
+          "required": [
+            "type",
+            "action"
+          ],
+          "description": "Taking back an action the asker may not undo themselves."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "request"
+            },
+            "text": {
+              "type": "string"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "from": {
+              "$ref": "#/$defs/PlatformUserId"
+            }
+          },
+          "required": [
+            "type",
+            "text",
+            "room",
+            "from"
+          ],
+          "description": "A guest's instruction a lead takes up: its words run again with the\napproving lead as the speaker."
+        }
+      ]
+    },
+    "LeadChange": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "add"
+            },
+            "users": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PlatformUserId"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "users"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "remove"
+            },
+            "users": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PlatformUserId"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "users"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "set"
+            },
+            "users": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PlatformUserId"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "users"
+          ],
+          "description": "Exactly these people, and nobody by platform role."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "everyone"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Every member is a lead."
+        }
+      ],
+      "description": "A change to who the leads are, with names already resolved to ids."
+    },
+    "PlannedAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "say"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "description": "A separate message in the room, not threaded under the question."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "react"
+            },
+            "emoji": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "emoji"
+          ],
+          "description": "A reaction on the message that asked."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "mail"
+            },
+            "to": {
+              "type": "string"
+            },
+            "subject": {
+              "type": "string"
+            },
+            "body": {
+              "type": "string",
+              "description": "Plain text, signed with your name for the group. The reply\naddress is added for you."
+            }
+          },
+          "required": [
+            "type",
+            "to",
+            "subject",
+            "body"
+          ],
+          "description": "An email from the group's address, held before it goes so it can be\nundone. Only to an address someone gave in the room."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "nothing"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        }
+      ]
+    },
+    "SettingChange": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "quiet_from"
+            },
+            "start": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "start"
+          ],
+          "description": "Quiet from `start` until the current end, or 08:00 when there was none."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "quiet_hours"
+            },
+            "start": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "end": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "start",
+            "end"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "no_quiet_hours"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "working_hours"
+            },
+            "start": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "end": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "start",
+            "end"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "no_working_hours"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "dial_by"
+            },
+            "delta": {
+              "type": "integer",
+              "format": "int8",
+              "minimum": -128,
+              "maximum": 127
+            }
+          },
+          "required": [
+            "type",
+            "delta"
+          ],
+          "description": "Turn the dial up or down by `delta`, within 0 to 3."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "dial_to"
+            },
+            "dial": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "dial"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "kind"
+            },
+            "kind": {
+              "$ref": "#/$defs/Kind"
+            }
+          },
+          "required": [
+            "type",
+            "kind"
+          ],
+          "description": "Reset the profile to this kind's defaults."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "go"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "End observe mode and start speaking unprompted."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "observe"
+            },
+            "days": {
+              "type": [
+                "integer",
+                "null"
+              ],
+              "format": "uint32",
+              "minimum": 0
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "Watch again for `days`, or the profile's period when not given."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "digest_at"
+            },
+            "hour": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            },
+            "minute": {
+              "type": "integer",
+              "format": "uint8",
+              "minimum": 0,
+              "maximum": 255
+            }
+          },
+          "required": [
+            "type",
+            "hour",
+            "minute"
+          ],
+          "description": "The digest at this local time, which also turns it on."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "digest"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "on"
+          ],
+          "description": "The digest on at its usual time, or off."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "day_of"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "on"
+          ],
+          "description": "The day-of summary on or off."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "add_bit"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "text"
+          ],
+          "description": "A running bit the group gave the agent."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "drop_bit"
+            },
+            "words": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "words"
+          ],
+          "description": "Drops every bit that mentions these words."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "use_persona"
+            },
+            "name": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "name"
+          ],
+          "description": "One of the starter personas by name, or \"plain\" for the default."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "legal_hold"
+            },
+            "on": {
+              "type": "boolean"
+            }
+          },
+          "required": [
+            "type",
+            "on"
+          ],
+          "description": "Turn expiry and retention off, or back on."
+        }
+      ],
+      "description": "A change to the group's settings, as a sentence or the admin page asks."
+    },
+    "MemoryChange": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "forget"
+            },
+            "facts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FactId"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "facts"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "expire"
+            },
+            "facts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FactId"
+              }
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            }
+          },
+          "required": [
+            "type",
+            "facts",
+            "at"
+          ]
+        }
+      ],
+      "description": "A change to facts someone asked for, carried out at once or after a\nlead's ✅."
+    }
+  }
+}

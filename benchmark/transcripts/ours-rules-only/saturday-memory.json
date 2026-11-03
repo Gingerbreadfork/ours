@@ -1,0 +1,22 @@
+{
+  "scenario": "saturday-memory",
+  "agent": "Ours, rules only",
+  "entries": [
+    {
+      "turn": 3,
+      "kind": "message",
+      "text": "ok",
+      "unprompted": false,
+      "room": "general",
+      "t": 406800
+    },
+    {
+      "turn": 4,
+      "kind": "message",
+      "text": "ok",
+      "unprompted": false,
+      "room": "general",
+      "t": 406860
+    }
+  ]
+}

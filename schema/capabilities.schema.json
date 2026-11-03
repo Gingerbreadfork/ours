@@ -1,0 +1,68 @@
+{
+  "type": "object",
+  "properties": {
+    "reactions": {
+      "type": "boolean"
+    },
+    "threads": {
+      "type": "boolean"
+    },
+    "polls": {
+      "type": "boolean"
+    },
+    "dms": {
+      "type": "boolean"
+    },
+    "edit": {
+      "type": "boolean"
+    },
+    "delete": {
+      "type": "boolean"
+    },
+    "pin": {
+      "type": "boolean"
+    },
+    "history": {
+      "type": "boolean"
+    },
+    "timezones": {
+      "type": "boolean",
+      "description": "The platform tells us members' timezones."
+    },
+    "external_flag": {
+      "type": "boolean",
+      "description": "The platform marks external or guest accounts."
+    },
+    "typing": {
+      "type": "boolean",
+      "description": "The platform can show that the agent is writing.",
+      "default": false
+    },
+    "reaction_set": {
+      "type": [
+        "array",
+        "null"
+      ],
+      "items": {
+        "type": "string"
+      },
+      "description": "The only reactions the platform allows, when it restricts them\n(Telegram); None means any emoji. The engine substitutes from this\nset for the reactions it relies on.",
+      "default": null
+    }
+  },
+  "required": [
+    "reactions",
+    "threads",
+    "polls",
+    "dms",
+    "edit",
+    "delete",
+    "pin",
+    "history",
+    "timezones",
+    "external_flag"
+  ],
+  "description": "What a connector can do. The engine falls back where a platform lacks\nsomething (reaction ballots where there are no polls).",
+  "title": "Capabilities",
+  "$schema": "https://json-schema.org/draft/2020-12/schema"
+}

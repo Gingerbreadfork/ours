@@ -1,0 +1,26 @@
+{
+  "name": "saturday-memory",
+  "kind": "friends",
+  "description": "On Monday the bar comes up in passing. On Saturday someone asks which bar it was. The agent kept the fact without a word and answers with who said it.",
+  "source": "DESIGN.md section 6, Saturday, and section 9",
+  "start": "2026-11-02T20:00:00Z",
+  "members": [
+    {"id": "sam", "name": "Sam", "role": "lead"},
+    {"id": "priya", "name": "Priya", "role": "lead"},
+    {"id": "jo", "name": "Jo", "role": "lead"},
+    {"id": "alex", "name": "Alex", "role": "lead"}
+  ],
+  "turns": [
+    {"t": 0, "from": "priya", "text": "thanks for coming to my birthday drinks at Hobson's, the weird cocktails were a hit"},
+    {"t": 60, "from": "sam", "text": "the negroni at Hobson's was a war crime"},
+    {"t": 120, "from": "jo", "text": "ha, it really was"},
+    {"t": 406800, "from": "alex", "text": "Noa, what was that bar with the weird cocktails?"},
+    {"t": 406860, "from": "alex", "text": "Noa, and who hated the negroni?"}
+  ],
+  "expect": {
+    "0": {"speak": "must_not", "react": "must_not", "action": "store_fact"},
+    "1-2": {"speak": "must_not", "react": "must_not"},
+    "3": {"speak": "must", "content_must_mention": ["Hobson", "Priya|Sam|2026-11-02|Monday|2 November|November 2"], "note": "the answer and where it came from"},
+    "4": {"speak": "must", "content_must_mention": ["Sam"]}
+  }
+}

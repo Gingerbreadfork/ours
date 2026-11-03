@@ -1,0 +1,1246 @@
+{
+  "oneOf": [
+    {
+      "type": "object",
+      "properties": {
+        "send": {
+          "$ref": "#/$defs/Outbound"
+        }
+      },
+      "required": [
+        "send"
+      ],
+      "additionalProperties": false,
+      "description": "Hand to the room's connector; its `ActionResult` comes back as an input."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "set_timer": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/TimerId"
+            },
+            "at": {
+              "$ref": "#/$defs/Instant"
+            },
+            "purpose": {
+              "$ref": "#/$defs/TimerPurpose"
+            }
+          },
+          "required": [
+            "id",
+            "at",
+            "purpose"
+          ]
+        }
+      },
+      "required": [
+        "set_timer"
+      ],
+      "additionalProperties": false,
+      "description": "Arm a durable timer; when `at` passes, feed `Input::TimerFired`."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "cancel_timer": {
+          "type": "object",
+          "properties": {
+            "id": {
+              "$ref": "#/$defs/TimerId"
+            }
+          },
+          "required": [
+            "id"
+          ]
+        }
+      },
+      "required": [
+        "cancel_timer"
+      ],
+      "additionalProperties": false
+    },
+    {
+      "type": "object",
+      "properties": {
+        "ask_model": {
+          "$ref": "#/$defs/ModelRequest"
+        }
+      },
+      "required": [
+        "ask_model"
+      ],
+      "additionalProperties": false,
+      "description": "Call the large model; its answer comes back as `Input::ModelReply`."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "classify": {
+          "$ref": "#/$defs/ClassifyRequest"
+        }
+      },
+      "required": [
+        "classify"
+      ],
+      "additionalProperties": false,
+      "description": "Score one message with the small model. Always answered with\n`Input::Scored`, carrying `rules` when the model fails or is off."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "extract": {
+          "$ref": "#/$defs/ExtractRequest"
+        }
+      },
+      "required": [
+        "extract"
+      ],
+      "additionalProperties": false,
+      "description": "Pull the facts out of one message. Always answered with\n`Input::Extracted`, with no drafts when the extractor fails or is off."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "resolve_time": {
+          "$ref": "#/$defs/TimeRequest"
+        }
+      },
+      "required": [
+        "resolve_time"
+      ],
+      "additionalProperties": false,
+      "description": "Read a time expression the rules could not. Always answered with\n`Input::TimeResolved`, meaning `None` when the resolver fails or is off."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "outside": {
+          "type": "object",
+          "properties": {
+            "action": {
+              "$ref": "#/$defs/ActionId"
+            },
+            "outside": {
+              "$ref": "#/$defs/OutsideAction"
+            }
+          },
+          "required": [
+            "action",
+            "outside"
+          ]
+        }
+      },
+      "required": [
+        "outside"
+      ],
+      "additionalProperties": false,
+      "description": "Carry out an action outside the group through its integration, now:\nany hold window has already passed. Always answered with\n`Input::OutsideResult` for the same `action`."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "redact": {
+          "type": "object",
+          "properties": {
+            "messages": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PlatformMessageId"
+              }
+            },
+            "user": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformUserId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "messages"
+          ]
+        }
+      },
+      "required": [
+        "redact"
+      ],
+      "additionalProperties": false,
+      "description": "Scrub these messages from the journal, and with `user` everything\nthat person said, after a forget (DESIGN.md section 9, \"Forgetting\")."
+    },
+    {
+      "type": "object",
+      "properties": {
+        "notice": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "notice"
+      ],
+      "additionalProperties": false,
+      "description": "One line for the admin page's audit trail."
+    }
+  ],
+  "title": "Effect",
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$defs": {
+    "Outbound": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/ActionId"
+        },
+        "action": {
+          "$ref": "#/$defs/OutboundAction"
+        }
+      },
+      "required": [
+        "id",
+        "action"
+      ],
+      "description": "An action with the id the engine will match its result to."
+    },
+    "ActionId": {
+      "type": "string",
+      "description": "An outbound action the engine asked a connector to perform."
+    },
+    "OutboundAction": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "send_message"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "text": {
+              "type": "string"
+            },
+            "reply_to": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "edit_message"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "id": {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "id",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "delete_message"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "id": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "id"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "react"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            "emoji": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message",
+            "emoji"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "unreact"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            },
+            "emoji": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message",
+            "emoji"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "send_dm"
+            },
+            "user": {
+              "$ref": "#/$defs/PlatformUserId"
+            },
+            "text": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "user",
+            "text"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "pin"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "create_poll"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "question": {
+              "type": "string"
+            },
+            "options": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "description": "Two to ten options, in order."
+            },
+            "multiple": {
+              "type": "boolean",
+              "description": "Whether a person may pick several."
+            },
+            "hours": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0,
+              "description": "How long the platform keeps it open, in hours."
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "question",
+            "options",
+            "multiple",
+            "hours"
+          ],
+          "description": "A native poll where the platform has them; the result's message id is\nthe poll's, and votes come back as `PollVote`."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "end_poll"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message"
+          ],
+          "description": "End a native poll early."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "typing"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            }
+          },
+          "required": [
+            "type",
+            "room"
+          ],
+          "description": "Show the room the agent is writing, where the platform has an\nindicator. Fire and forget; the result carries no message."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "fetch_history"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "limit": {
+              "type": "integer",
+              "format": "uint32",
+              "minimum": 0
+            },
+            "before": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "limit"
+          ],
+          "description": "Ask for up to `limit` messages before `before` (or the newest when\nunset); answered with `InboundEvent::History`, oldest first."
+        }
+      ],
+      "description": "Everything the engine can ask a platform to do."
+    },
+    "PlatformRoomId": {
+      "type": "string",
+      "description": "A room (channel, DM, thread) as the platform identifies it."
+    },
+    "PlatformMessageId": {
+      "type": "string",
+      "description": "A message as the platform identifies it; the unit of provenance."
+    },
+    "PlatformUserId": {
+      "type": "string",
+      "description": "A user as the platform identifies them. Never a display name."
+    },
+    "TimerId": {
+      "type": "string",
+      "description": "A durable timer on the virtual clock."
+    },
+    "Instant": {
+      "type": "string",
+      "format": "date-time",
+      "description": "An RFC 3339 timestamp in UTC"
+    },
+    "TimerPurpose": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "model_guard"
+            },
+            "request": {
+              "$ref": "#/$defs/RequestId"
+            }
+          },
+          "required": [
+            "type",
+            "request"
+          ],
+          "description": "Fires if the model has not answered `request` in time."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "raise_hand"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message"
+          ],
+          "description": "The answer window for a question nobody has answered: react 🙋 if\nit is still open."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "answer_anyway"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message"
+          ],
+          "description": "The window again after the 🙋: answer if the question is still open."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "observe_end"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "The end of the observe period: tell leads and hosts what it saw."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "extract_guard"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message"
+          ],
+          "description": "Fires if the extractor has not answered a \"remember that\" in time."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "backfill_guard"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            }
+          },
+          "required": [
+            "type",
+            "room"
+          ],
+          "description": "A backfill waited too long for a page or for its last facts."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "nudge"
+            },
+            "proposal": {
+              "$ref": "#/$defs/ProposalId"
+            },
+            "which": {
+              "$ref": "#/$defs/NudgeAt"
+            },
+            "user": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformUserId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "default": null
+            }
+          },
+          "required": [
+            "type",
+            "proposal",
+            "which"
+          ],
+          "description": "Nudge members who have not voted. Without a user it picks each\nmember's moment; with one it is that member's moment."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "close"
+            },
+            "proposal": {
+              "$ref": "#/$defs/ProposalId"
+            }
+          },
+          "required": [
+            "type",
+            "proposal"
+          ],
+          "description": "A proposal's deadline."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "time_guard"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "message"
+          ],
+          "description": "Fires if the resolver has not answered a deadline in time."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "due"
+            },
+            "commitment": {
+              "$ref": "#/$defs/CommitmentId"
+            },
+            "which": {
+              "$ref": "#/$defs/DueAt"
+            }
+          },
+          "required": [
+            "type",
+            "commitment",
+            "which"
+          ],
+          "description": "A commitment's nudge by DM."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "digest"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            }
+          },
+          "required": [
+            "type",
+            "room"
+          ],
+          "description": "The room's digest at the profile's time."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "day_of"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            "entry": {
+              "$ref": "#/$defs/DecisionId"
+            }
+          },
+          "required": [
+            "type",
+            "room",
+            "entry"
+          ],
+          "description": "The one line on a day with a calendar entry; `entry` is the earliest."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "repin"
+            },
+            "room": {
+              "$ref": "#/$defs/PlatformRoomId"
+            }
+          },
+          "required": [
+            "type",
+            "room"
+          ],
+          "description": "Edit the room's pinned state message once the changes settle."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "recur"
+            },
+            "id": {
+              "$ref": "#/$defs/RecurrenceId"
+            }
+          },
+          "required": [
+            "type",
+            "id"
+          ],
+          "description": "Open a recurrence's next instance."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "release"
+            },
+            "action": {
+              "$ref": "#/$defs/ActionId"
+            }
+          },
+          "required": [
+            "type",
+            "action"
+          ],
+          "description": "A held action's window is over: send it, or let an unanswered\nrequest for a ✅ lapse."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "retention"
+            }
+          },
+          "required": [
+            "type"
+          ],
+          "description": "The daily sweep that drops old action records and expired facts."
+        }
+      ],
+      "description": "Why a timer exists."
+    },
+    "RequestId": {
+      "type": "string",
+      "description": "A request the engine made to a model."
+    },
+    "ProposalId": {
+      "type": "string",
+      "description": "A proposal's id, minted from the group's sequence."
+    },
+    "NudgeAt": {
+      "type": "string",
+      "enum": [
+        "half",
+        "deadline"
+      ],
+      "description": "Which of a proposal's two nudges."
+    },
+    "CommitmentId": {
+      "type": "string",
+      "description": "A commitment's id, minted from the group's sequence."
+    },
+    "DueAt": {
+      "oneOf": [
+        {
+          "type": "string",
+          "enum": [
+            "at"
+          ]
+        },
+        {
+          "type": "string",
+          "const": "before",
+          "description": "The day before it is due."
+        }
+      ],
+      "description": "Which of a commitment's two nudges."
+    },
+    "DecisionId": {
+      "type": "string",
+      "description": "A decision record's id, minted from the group's sequence."
+    },
+    "RecurrenceId": {
+      "type": "string",
+      "description": "A recurrence's id, minted from the group's sequence."
+    },
+    "ModelRequest": {
+      "type": "object",
+      "properties": {
+        "id": {
+          "$ref": "#/$defs/RequestId"
+        },
+        "system": {
+          "type": "string"
+        },
+        "messages": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ChatTurn"
+          },
+          "description": "The room's recent messages, oldest first, ending with the one to answer."
+        },
+        "output_schema": {
+          "description": "JSON Schema for `Plan`; the answer must match it."
+        }
+      },
+      "required": [
+        "id",
+        "system",
+        "messages",
+        "output_schema"
+      ]
+    },
+    "ChatTurn": {
+      "type": "object",
+      "properties": {
+        "role": {
+          "$ref": "#/$defs/TurnRole"
+        },
+        "content": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "role",
+        "content"
+      ]
+    },
+    "TurnRole": {
+      "oneOf": [
+        {
+          "type": "string",
+          "const": "user",
+          "description": "People in the room, each line prefixed with the speaker's name."
+        },
+        {
+          "type": "string",
+          "const": "assistant",
+          "description": "The agent's own earlier messages."
+        }
+      ]
+    },
+    "ClassifyRequest": {
+      "type": "object",
+      "properties": {
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "agent_name": {
+          "type": "string"
+        },
+        "speaker": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "context": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ContextLine"
+          },
+          "description": "The last few messages before this one, oldest first."
+        },
+        "open_items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Anything the group currently has open, one line each, for the\nopen-decision signal. Empty until decisions exist."
+        },
+        "rules": {
+          "$ref": "#/$defs/Score",
+          "description": "The rules pass's own score, for the model to refine rather than redo."
+        }
+      },
+      "required": [
+        "room",
+        "message",
+        "agent_name",
+        "speaker",
+        "text",
+        "context",
+        "open_items",
+        "rules"
+      ],
+      "description": "What a classifier needs to score one message."
+    },
+    "ContextLine": {
+      "type": "object",
+      "properties": {
+        "speaker": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "seconds_before": {
+          "type": "integer",
+          "format": "int64",
+          "description": "Seconds before the message being classified."
+        }
+      },
+      "required": [
+        "speaker",
+        "text",
+        "seconds_before"
+      ],
+      "description": "One earlier line of the room, as a classifier should read it."
+    },
+    "Score": {
+      "type": "object",
+      "properties": {
+        "addressed": {
+          "type": "number",
+          "format": "float"
+        },
+        "open_decision": {
+          "type": "number",
+          "format": "float"
+        },
+        "plan_forming": {
+          "type": "number",
+          "format": "float"
+        },
+        "unanswered_question": {
+          "type": "number",
+          "format": "float"
+        },
+        "fact": {
+          "type": "number",
+          "format": "float"
+        },
+        "commitment": {
+          "type": "number",
+          "format": "float"
+        },
+        "banter": {
+          "type": "number",
+          "format": "float",
+          "description": "Something a mate would react to: a joke that landed, big news, a\nphoto, a celebration. Not part of `max`; it never makes the agent\nact, only lets it chime in when the dial and the budget allow.",
+          "default": 0.0
+        },
+        "kind": {
+          "$ref": "#/$defs/MessageKind"
+        },
+        "answerable_from_context": {
+          "type": "boolean",
+          "description": "The agent could answer this from the recent messages alone."
+        },
+        "source": {
+          "$ref": "#/$defs/ScoreSource"
+        }
+      },
+      "required": [
+        "addressed",
+        "open_decision",
+        "plan_forming",
+        "unanswered_question",
+        "fact",
+        "commitment",
+        "kind",
+        "answerable_from_context",
+        "source"
+      ],
+      "description": "Each signal from the table in DESIGN.md section 7, 0 to 1. The score of\na message is the largest of them."
+    },
+    "MessageKind": {
+      "type": "string",
+      "enum": [
+        "question",
+        "instruction",
+        "statement",
+        "greeting",
+        "other"
+      ],
+      "description": "What kind of thing the message is, as far as the agent is concerned."
+    },
+    "ScoreSource": {
+      "oneOf": [
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "rules"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "small_model"
+            },
+            "model": {
+              "type": "string"
+            }
+          },
+          "required": [
+            "type",
+            "model"
+          ]
+        }
+      ],
+      "description": "Where a score came from."
+    },
+    "ExtractRequest": {
+      "type": "object",
+      "properties": {
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "agent_name": {
+          "type": "string"
+        },
+        "speaker": {
+          "type": "string"
+        },
+        "text": {
+          "type": "string"
+        },
+        "private": {
+          "type": "boolean",
+          "description": "Said in a direct message with the agent."
+        },
+        "context": {
+          "type": "array",
+          "items": {
+            "$ref": "#/$defs/ContextLine"
+          },
+          "description": "The last few messages before this one, oldest first."
+        },
+        "date": {
+          "type": "string",
+          "description": "The day the message was sent, YYYY-MM-DD, so \"next Friday\" can be resolved."
+        },
+        "timezone": {
+          "type": "string",
+          "description": "The group's IANA zone."
+        }
+      },
+      "required": [
+        "room",
+        "message",
+        "agent_name",
+        "speaker",
+        "text",
+        "private",
+        "context",
+        "date",
+        "timezone"
+      ],
+      "description": "What the extractor needs to pull facts out of one message."
+    },
+    "TimeRequest": {
+      "type": "object",
+      "properties": {
+        "room": {
+          "$ref": "#/$defs/PlatformRoomId"
+        },
+        "message": {
+          "$ref": "#/$defs/PlatformMessageId"
+        },
+        "text": {
+          "type": "string"
+        },
+        "zone": {
+          "type": "string",
+          "description": "The speaker's IANA zone when known, else the group's."
+        },
+        "now": {
+          "$ref": "#/$defs/Instant",
+          "description": "The instant the message was sent."
+        },
+        "local_now": {
+          "type": "string",
+          "description": "The same instant as local civil time, \"YYYY-MM-DD HH:MM Weekday\"."
+        }
+      },
+      "required": [
+        "room",
+        "message",
+        "text",
+        "zone",
+        "now",
+        "local_now"
+      ],
+      "description": "What the resolver needs for one message."
+    },
+    "OutsideAction": {
+      "oneOf": [
+        {
+          "$ref": "#/$defs/OutgoingMail",
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "send_mail"
+            }
+          },
+          "required": [
+            "type"
+          ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "cancel_mail"
+            },
+            "original": {
+              "$ref": "#/$defs/ActionId"
+            },
+            "mail": {
+              "$ref": "#/$defs/OutgoingMail"
+            }
+          },
+          "required": [
+            "type",
+            "original",
+            "mail"
+          ],
+          "description": "The compensation for a sent mail: a follow-up to the same address."
+        }
+      ],
+      "description": "What the binary carries out through an integration. Every variant has a\ncompensating variant or is its own compensation."
+    },
+    "OutgoingMail": {
+      "type": "object",
+      "properties": {
+        "to": {
+          "type": "string"
+        },
+        "subject": {
+          "type": "string"
+        },
+        "body": {
+          "type": "string"
+        },
+        "in_reply_to": {
+          "type": [
+            "string",
+            "null"
+          ]
+        }
+      },
+      "required": [
+        "to",
+        "subject",
+        "body"
+      ],
+      "description": "An email the group sends. `in_reply_to` threads it under an earlier\nmessage id so replies can be matched back."
+    }
+  }
+}

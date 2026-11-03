@@ -1,0 +1,555 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="color-scheme" content="light dark">
+<title>Ours</title>
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<style>
+:root { --bg: #faf9f6; --fg: #1d1c1a; --muted: #6b675f; --line: #dcd8cd; --sel: #e6eee8; --ok: #2f6b4f; --warn: #8a5a00; --bad: #b3402d; }
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #151614; --fg: #e8e6e0; --muted: #98948a; --line: #2d2e2a; --sel: #1e2a23; --ok: #7fc4a0; --warn: #e0b050; --bad: #e48b79; }
+}
+* { box-sizing: border-box; }
+[hidden] { display: none !important; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 16px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+header, main { max-width: 48rem; margin: 0 auto; padding: 0 16px; }
+header { position: sticky; top: 0; background: var(--bg); border-bottom: 1px solid var(--line); display: flex; align-items: baseline; gap: 12px; padding-top: 12px; padding-bottom: 8px; }
+h1 { margin: 0; font-size: 1.125rem; }
+.muted { color: var(--muted); font-size: 0.875rem; }
+#status { margin-left: auto; } #status.live { color: var(--ok); }
+#groups { display: grid; gap: 8px; padding: 12px 0; }
+.g, .t, .tab, #memq { font: inherit; color: inherit; min-height: 44px; padding: 8px 12px; background: none; border: 1px solid var(--line); border-radius: 8px; }
+.g { text-align: left; } .g b { display: block; }
+.g[aria-pressed="true"], .t[aria-pressed="true"], .tab[aria-selected="true"] { background: var(--sel); border-color: var(--ok); }
+#tabs, #filter { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding-bottom: 8px; }
+.t { padding: 0 12px; font-size: 0.875rem; }
+details { padding-bottom: 8px; }
+summary { min-height: 32px; cursor: pointer; }
+pre { margin: 0; overflow-x: auto; font-size: 0.8125rem; }
+#chartertext, .detail pre { white-space: pre-wrap; overflow-wrap: anywhere; font: inherit; }
+#feed, #chartertext { font: 0.875rem/1.4 ui-monospace, "SF Mono", Menlo, Consolas, monospace; padding-bottom: 24px; }
+.row { display: grid; grid-template-columns: 5.5em 1fr; gap: 8px; padding: 4px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.row.d { grid-template-columns: 5.5em 1fr 44px; }
+.row time, .k { color: var(--muted); }
+.badge { color: var(--ok); white-space: nowrap; }
+.x { width: 44px; height: 44px; margin: -4px 0; padding: 0; font: inherit; font-size: 1.25rem; color: var(--muted); background: none; border: 0; border-radius: 8px; }
+.x:active { background: var(--sel); }
+.detail { grid-column: 2 / -1; padding-bottom: 4px; }
+.blk { margin-bottom: 8px; padding-left: 8px; border-left: 2px solid var(--line); }
+.blk b { color: var(--muted); font-weight: normal; }
+.msg { color: var(--bad); }
+#memtools { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; padding-bottom: 8px; }
+#memq { flex: 1 1 12rem; } #memtools label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.fact { padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; } #memlist { padding-bottom: 24px; }
+.fact a, #declog { color: var(--ok); } .gone .main { color: var(--muted); text-decoration: line-through; }
+h2 { margin: 16px 0 4px; font-size: 1rem; } #decisions { padding-bottom: 24px; } .dec summary .muted { display: block; }
+.dec { padding: 8px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+.opt { display: grid; grid-template-columns: minmax(0, 1fr) auto auto; gap: 0 8px; padding: 2px 0; } .opt.win > span:first-child { font-weight: 600; }
+.void { color: var(--muted); } .void .main { text-decoration: line-through; } #learlier { padding-top: 8px; }
+.bar { color: var(--ok); font: 0.8125rem ui-monospace, "SF Mono", Menlo, Consolas, monospace; } .voters { grid-column: 1 / -1; }
+#actools { display: flex; flex-wrap: wrap; align-items: center; gap: 0 16px; } #actools label { display: flex; align-items: center; gap: 8px; min-height: 44px; }
+.act { padding: 4px 0; border-top: 1px solid var(--line); overflow-wrap: anywhere; } .act summary > span + span { display: block; } #actlist { padding-bottom: 8px; }
+.tier { padding: 0 6px; border: 1px solid; border-radius: 4px; font-size: 0.75rem; white-space: nowrap; color: var(--muted); } .t1, .st.held { color: var(--warn); } .t2, .st.failed { color: var(--bad); } .st.sent { color: var(--ok); }
+table { width: 100%; border-collapse: collapse; font-size: 0.875rem; } th, td { padding: 4px 8px 4px 0; text-align: left; vertical-align: top; border-top: 1px solid var(--line); overflow-wrap: anywhere; }
+</style>
+</head>
+<body>
+<header>
+  <h1>Ours</h1>
+  <span class="muted" id="host"></span>
+  <span class="muted" id="status"></span>
+  <a class="muted" href="/compliance">Privacy</a>
+</header>
+<main>
+  <noscript><p>This page needs JavaScript.</p></noscript>
+  <p class="msg" id="error" hidden></p>
+  <div id="groups"></div>
+  <details id="state" hidden><summary>State</summary><pre id="statebody"></pre></details>
+  <div id="tabs" role="tablist" hidden>
+    <button class="tab" type="button" role="tab" id="tab-feed" aria-controls="feed" aria-selected="true">Feed</button>
+    <button class="tab" type="button" role="tab" id="tab-charter" aria-controls="charter" aria-selected="false">Charter</button>
+    <button class="tab" type="button" role="tab" id="tab-memory" aria-controls="memory" aria-selected="false">Memory</button>
+    <button class="tab" type="button" role="tab" id="tab-decisions" aria-controls="decisions" aria-selected="false">Decisions</button>
+    <button class="tab" type="button" role="tab" id="tab-ledger" aria-controls="ledger" aria-selected="false">Tab</button>
+    <button class="tab" type="button" role="tab" id="tab-actions" aria-controls="actions" aria-selected="false">Actions</button>
+    <button class="tab" type="button" role="tab" id="tab-persona" aria-controls="persona" aria-selected="false">Persona</button>
+    <button class="tab" type="button" role="tab" id="tab-profile" aria-controls="profile" aria-selected="false">Profile</button>
+  </div>
+  <div id="filter" role="group" aria-label="Hide kinds" hidden><span class="muted">Hide</span></div>
+  <div id="feed" role="log" hidden></div>
+  <div id="charter" role="tabpanel" aria-labelledby="tab-charter" hidden><p class="muted" id="icsline"></p><pre id="chartertext"></pre></div>
+  <div id="memory" role="tabpanel" aria-labelledby="tab-memory" hidden>
+    <div id="memtools"><input id="memq" type="search" placeholder="Filter facts" aria-label="Filter facts" autocomplete="off">
+      <label><input id="memgone" type="checkbox"> show retracted</label></div>
+    <p class="muted" id="memcount"></p><div id="memlist"></div>
+  </div>
+  <div id="decisions" role="tabpanel" aria-labelledby="tab-decisions" hidden>
+    <p class="muted"><a id="declog" target="_blank" rel="noopener noreferrer">Decision log (Markdown)</a> <span id="decmsg"></span></p>
+    <h2>Open</h2><div id="dopen"></div><h2>Upcoming</h2><div id="dup"></div><h2>Closed</h2><div id="dclosed"></div>
+  </div>
+  <div id="ledger" role="tabpanel" aria-labelledby="tab-ledger" hidden>
+    <p class="muted" id="lmsg"></p>
+    <h2>Promises</h2><div id="lpromises"></div><details id="learlier" hidden><summary></summary><div id="learlierbody"></div></details>
+    <h2>Lines</h2><div id="llines"></div><h2>Balances</h2><div id="lbalances"></div>
+  </div>
+  <div id="persona" role="tabpanel" aria-labelledby="tab-persona" hidden><div id="personabody"></div></div>
+  <div id="profile" role="tabpanel" aria-labelledby="tab-profile" hidden><div id="profilebody"></div></div>
+  <div id="actions" role="tabpanel" aria-labelledby="tab-actions" hidden>
+    <div id="actools"><label><input id="actfree" type="checkbox" checked> hide tier 0 (free)</label> <span class="muted" id="actcount"></span></div>
+    <div id="actlist"></div><details><summary>What can be undone</summary><table><tbody id="cattable"></tbody></table><p class="muted" id="catmsg"></p></details>
+  </div>
+</main>
+<script>
+const $ = (id) => document.getElementById(id);
+const MAX_ROWS = 500;
+let stream = null;
+
+function el(tag, cls, text) {
+  const e = document.createElement(tag);
+  if (cls) e.className = cls;
+  if (text != null) e.textContent = text;
+  return e;
+}
+function setStatus(text, live) { $("status").textContent = text; $("status").className = "muted" + (live ? " live" : ""); }
+function count(n, word) { return n + " " + word + (n === 1 ? "" : "s"); }
+function fail(text) { $("error").textContent = text; $("error").hidden = false; }
+function nearBottom() { return innerHeight + scrollY >= document.documentElement.scrollHeight - 80; }
+
+const SIGNALS = { addressed: "addressed", open_decision: "decision", plan_forming: "plan", unanswered_question: "question", fact: "fact", commitment: "commitment" };
+function badge(score) {
+  if (!score || typeof score !== "object") return null;
+  let best = null;
+  for (const key in SIGNALS) {
+    const v = score[key];
+    if (typeof v === "number" && v > 0 && (!best || v > best[1])) best = [SIGNALS[key], v];
+  }
+  const parts = best ? [best[0] + " " + best[1].toFixed(2)] : [];
+  if (typeof score.kind === "string" && score.kind) parts.push(score.kind);
+  return parts.length ? el("span", "badge", parts.join(" · ")) : null;
+}
+
+function textOf(v) {
+  if (typeof v === "string") return v;
+  if (Array.isArray(v)) return v.map(textOf).join("\n");
+  if (v && typeof v === "object") return typeof v.text === "string" ? v.text : JSON.stringify(v, null, 2);
+  return v == null ? "" : String(v);
+}
+function block(label, text) { const b = el("div", "blk"); b.append(el("b", null, label), el("pre", null, text)); return b; }
+function pretty(value) { return el("pre", null, JSON.stringify(value, null, 2)); }
+function detailView(detail) {
+  const box = el("div", "detail");
+  const req = detail && typeof detail === "object" ? detail.request : null;
+  if (!req || typeof req !== "object" || !("system" in req) || !Array.isArray(req.messages)) { box.append(pretty(detail)); return box; }
+  box.append(block("system", textOf(req.system)));
+  for (const m of req.messages) {
+    const obj = m && typeof m === "object" && !Array.isArray(m);
+    box.append(block((obj && (m.role || m.author)) || "message", textOf(obj && "content" in m ? m.content : m)));
+  }
+  const { system, messages, ...otherReq } = req;
+  const { request, ...other } = detail;
+  if (Object.keys(otherReq).length) other.request = otherReq;
+  if (Object.keys(other).length) box.append(pretty(other));
+  return box;
+}
+
+function expander(row, detail) {
+  const btn = el("button", "x", "+");
+  btn.type = "button";
+  btn.setAttribute("aria-expanded", "false");
+  btn.setAttribute("aria-label", "Show detail");
+  let box = null;
+  btn.addEventListener("click", () => {
+    if (!box) { box = row.appendChild(detailView(detail)); box.hidden = true; }
+    const open = box.hidden;
+    box.hidden = !open;
+    btn.textContent = open ? "\u2212" : "+";
+    btn.setAttribute("aria-expanded", String(open));
+    btn.setAttribute("aria-label", open ? "Hide detail" : "Show detail");
+  });
+  return btn;
+}
+
+function addLine(ev) {
+  const stick = nearBottom();
+  const when = new Date(ev.at);
+  const row = el("div", ev.detail != null ? "row d" : "row");
+  row.dataset.kind = ev.kind;
+  row.hidden = hidden.has(ev.kind);
+  row.append(el("time", null, isNaN(when) ? "" : when.toLocaleTimeString([], { hour12: false })));
+  const body = el("div");
+  body.append(el("span", "k", ev.kind + " "), el("span", null, ev.line));
+  const tag = ev.detail != null && badge(ev.detail.score);
+  if (tag) body.append(" ", tag);
+  row.append(body);
+  if (ev.detail != null) row.append(expander(row, ev.detail));
+  $("feed").append(row);
+  while ($("feed").children.length > MAX_ROWS) $("feed").firstChild.remove();
+  if (stick) scrollTo(0, document.documentElement.scrollHeight);
+  if (ev.kind === "charter") refreshCharter();
+  if (ev.kind === "notice" && /^(remembered|forgot)/i.test(ev.line) && !$("memory").hidden) refreshFacts();
+  if (!$("decisions").hidden && DECIDING.get(ev.kind)?.test(ev.line)) refreshDecisions();
+  if (!$("actions").hidden && ACTING.has(ev.kind)) refreshActions();
+  if (ev.kind === "notice" && /remembered|Added|settled|due|moved/i.test(ev.line) && !$("ledger").hidden) refreshLedger();
+}
+
+const QUIET = ["message", "room_sync", "action_result", "scored"];
+let hidden = new Set();
+try { hidden = new Set([].concat(JSON.parse(localStorage.getItem("ours.hide")) || [])); } catch {}
+function applyFilter() {
+  for (const row of $("feed").children) row.hidden = hidden.has(row.dataset.kind);
+  for (const b of $("filter").querySelectorAll("button")) {
+    const kinds = b.dataset.k === "quiet" ? QUIET : [b.dataset.k];
+    b.setAttribute("aria-pressed", String(kinds.every((k) => hidden.has(k))));
+  }
+}
+for (const name of ["quiet", ...QUIET]) {
+  const b = el("button", "t", name);
+  b.type = "button";
+  b.dataset.k = name;
+  b.addEventListener("click", () => {
+    const kinds = name === "quiet" ? QUIET : [name];
+    const hide = !kinds.every((k) => hidden.has(k));
+    for (const k of kinds) hide ? hidden.add(k) : hidden.delete(k);
+    try { localStorage.setItem("ours.hide", JSON.stringify([...hidden])); } catch {}
+    applyFilter();
+  });
+  $("filter").append(b);
+}
+applyFilter();
+
+const PERSONA_FIELDS = [["Name", ["name"]], ["Dial", ["dial", "banter_dial"]], ["Voice", ["voice"]], ["Traits", ["traits"]], ["Bits", ["bits", "running_bits"]], ["Never jokes about", ["never_jokes_about", "never_jokes", "never"]]];
+const PROFILE_FIELDS = [["Leads rule", ["leads_rule", "lead_rule", "rule"]], ["Budgets", ["budgets", "budget"]], ["Thresholds", ["thresholds"]], ["Hold window", ["hold_window", "hold"]], ["Hours", ["hours", "quiet_hours"]], ["Retention days", ["retention_days", "retention"]], ["Legal hold", ["legal_hold"]]];
+function viewText(v) { return Array.isArray(v) && v.every((x) => typeof x !== "object") ? v.join(", ") : typeof v === "object" && v !== null ? JSON.stringify(v, null, 2) : txt(v); }
+async function loadView(name, fields) {
+  const id = current, box = $(name + "body");
+  let data = null, msg = "";
+  try {
+    const r = await fetch("/api/groups/" + encodeURIComponent(id) + "/" + name);
+    if (r.ok) data = await r.json(); else msg = r.status === 404 ? "Nothing to show yet." : "Could not load (" + r.status + ").";
+  } catch { msg = "Cannot reach the server."; }
+  if (id !== current) return;
+  box.replaceChildren();
+  if (!data || typeof data !== "object") { box.append(el("p", "muted", msg || "Nothing to show yet.")); return; }
+  const used = new Set(), table = el("table"), body = el("tbody");
+  for (const [label, keys] of fields) {
+    const key = keys.find((k) => k in data);
+    if (key === undefined) continue;
+    used.add(key);
+    const row = el("tr"), cell = el("td");
+    cell.append(el("pre", null, viewText(data[key])));
+    row.append(el("th", null, label), cell);
+    body.append(row);
+  }
+  table.append(body);
+  box.append(table);
+  const rest = Object.fromEntries(Object.entries(data).filter(([k]) => !used.has(k)));
+  if (Object.keys(rest).length) { const d = el("details"); d.append(el("summary", null, "Other fields"), pretty(rest)); box.append(d); }
+}
+const TABS = ["feed", "charter", "memory", "decisions", "ledger", "actions", "persona", "profile"];
+function showTab(name) {
+  for (const t of TABS) {
+    $("tab-" + t).setAttribute("aria-selected", String(t === name));
+    $(t).hidden = t !== name;
+  }
+  $("filter").hidden = name !== "feed";
+  if (name === "memory") loadFacts();
+  if (name === "decisions") loadDecisions();
+  if (name === "ledger") loadLedger();
+  if (name === "actions") { loadActions(); loadCatalogue(); }
+  if (name === "persona") loadView("persona", PERSONA_FIELDS);
+  if (name === "profile") loadView("profile", PROFILE_FIELDS);
+}
+for (const t of TABS) $("tab-" + t).addEventListener("click", () => showTab(t));
+
+const txt = (v) => (v == null ? "" : typeof v === "object" ? JSON.stringify(v) : String(v));
+function day(v) { const d = new Date(v); return v == null ? "" : isNaN(d) ? txt(v) : d.toISOString().slice(0, 10); }
+function scopeText(s) {
+  if (!s || typeof s !== "object") return txt(s);
+  return Object.entries(s).map(([k, v]) => (k === "type" || k === "kind" ? txt(v) : txt(v) ? k + ":" + txt(v) : k)).join(" ");
+}
+function sourceNode(f) {
+  const s = (Array.isArray(f.sources) && f.sources[0]) || {}, id = txt(s.message);
+  if (!/^https?:\/\//i.test(s.link)) return id;
+  return Object.assign(el("a", null, id || "source"), { href: s.link, target: "_blank", rel: "noopener noreferrer" });
+}
+function factRow(f) {
+  const row = el("div", f.retracted ? "fact gone" : "fact");
+  Object.assign(row.dataset, { q: [f.subject, f.predicate, f.object, f.quote].map(txt).join("\n").toLowerCase(), gone: f.retracted ? "1" : "" });
+  row.title = txt(f.quote);
+  const main = el("div", "main");
+  main.append(el("b", null, txt(f.subject)), " ", el("span", "k", txt(f.predicate)), " " + txt(f.object));
+  const bits = [scopeText(f.scope), typeof f.confidence === "number" ? f.confidence.toFixed(2) : "", sourceNode(f), day(f.first_seen)];
+  if (f.expires) bits.push("expires " + day(f.expires));
+  if (f.retracted) bits.push("retracted: " + (txt(f.retracted.reason) || "no reason given"));
+  const sub = el("div", "muted");
+  bits.filter(Boolean).forEach((b, i) => { if (i) sub.append(" \u00b7 "); sub.append(b); });
+  row.append(main, sub);
+  return row;
+}
+
+let facts = [], factTimer = 0;
+function applyFacts() {
+  const q = $("memq").value.trim().toLowerCase(), all = $("memgone").checked;
+  let shown = 0;
+  for (const row of $("memlist").children) {
+    row.hidden = (row.dataset.gone && !all) || !row.dataset.q.includes(q);
+    if (!row.hidden) shown++;
+  }
+  const gone = facts.filter((f) => f.retracted).length;
+  $("memcount").textContent = count(facts.length - gone, "fact") + ", " + gone + " retracted" + (q ? ", " + shown + " shown" : "");
+}
+$("memq").addEventListener("input", applyFacts); $("memgone").addEventListener("change", applyFacts);
+function refreshFacts() { clearTimeout(factTimer); factTimer = setTimeout(loadFacts, 250); }
+async function loadFacts() {
+  const id = current;
+  try {
+    const r = await fetch("/api/groups/" + encodeURIComponent(id) + "/facts?include_retracted=true");
+    if (!r.ok) throw new Error(r.status);
+    const data = await r.json();
+    if (id !== current) return;
+    facts = Array.isArray(data) ? data.filter((f) => f && typeof f === "object") : [];
+    const rows = document.createDocumentFragment();
+    facts.forEach((f) => rows.append(factRow(f)));
+    $("memlist").replaceChildren(rows);
+    applyFacts();
+  } catch { if (id === current) $("memcount").textContent = "Could not load the facts."; }
+}
+
+const ms = (v) => new Date(v).getTime() || 0;
+const when = (v) => (v == null || isNaN(new Date(v)) ? txt(v) : /^\d{4}-\d\d-\d\d$/.test(v) ? v : new Date(v).toLocaleString([], { dateStyle: "medium", timeStyle: "short" }));
+const list = (v) => (Array.isArray(v) ? v.filter((x) => x && typeof x === "object") : []);
+const plain = (v) => Array.isArray(v) ? v.map(plain).join(", ") : v && typeof v === "object"
+  ? Object.entries(v).map(([k, x]) => (k === "type" || k === "kind" ? plain(x) : k + (x == null || x === true ? "" : " " + plain(x)))).join(" ").replace(/_/g, " ")
+  : txt(v).replace(/_/g, " ");
+const kv = (label, v, show = plain) => v != null && v !== "" && label + show(v);
+const meta = (bits, tag = "div") => el(tag, "muted", bits.filter(Boolean).join(" \u00b7 "));
+const title = (d) => el("b", null, txt(d.question) || "(no question)");
+const votesOf = (o) => (o && typeof o === "object" ? (o.voters ?? o.votes) : null);
+const tally = (v) => (Array.isArray(v) ? v.length : Math.max(0, Number(v) || 0));
+function options(d, win, voters) {
+  const opts = Array.isArray(d.options) ? d.options : [], total = opts.reduce((sum, o) => sum + tally(votesOf(o)), 0);
+  return opts.map((o) => {
+    const v = votesOf(o), n = tally(v), label = txt(o && typeof o === "object" ? o.label : o), cells = n && total ? Math.max(1, Math.round((n / total) * 10)) : 0;
+    const row = el("div", label && label === win ? "opt win" : "opt"), bar = el("span", "bar", "\u2588".repeat(cells) + "\u2591".repeat(10 - cells));
+    bar.setAttribute("aria-hidden", "true");
+    row.append(el("span", null, label), bar, el("span", "k", count(n, "vote")));
+    if (voters && Array.isArray(v) && v.length) row.append(el("div", "muted voters", v.map(txt).join(", ")));
+    return row;
+  });
+}
+function card(tag, ...kids) { const box = el(tag, "dec"); box.append(...kids); return box; }
+const openCard = (d) => card("div", title(d), ...options(d), meta([kv("closes ", d.deadline, when), kv("rule: ", d.rule), txt(d.room), kv("opened ", d.opened_at, when)]));
+const upCard = (d) => card("div", el("b", null, when(d.when)), " " + (txt(d.label) || "(untitled)"), meta([d.attendees != null && count(tally(d.attendees), "attendee")]));
+function closedCard(d, keep) {
+  const head = el("summary");
+  head.append(title(d), kv(" \u2192 ", d.outcome) || "", meta([kv("decided by ", d.decider) || kv("count ", d.count), kv("rule: ", d.rule), kv("reason: ", d.reason, txt), kv("closed ", d.closed_at, when)], "span"));
+  const box = card("details", head, ...options(d, txt(d.outcome), true));
+  box.dataset.k = txt(d.question) + "|" + txt(d.closed_at);
+  box.open = keep.has(box.dataset.k);
+  return box;
+}
+const DECIDING = new Map([["send", /^opened a poll/i], ["notice", /decided|closed/i]]);
+let decTimer = 0;
+function refreshDecisions() { clearTimeout(decTimer); decTimer = setTimeout(loadDecisions, 250); }
+function fill(id, nodes, none) { $(id).replaceChildren(...(nodes.length ? nodes : [el("p", "muted", none)])); }
+async function loadDecisions() {
+  const id = current;
+  try {
+    const r = await fetch("/api/groups/" + encodeURIComponent(id) + "/decisions");
+    if (!r.ok) throw new Error(r.status);
+    const d = (await r.json()) ?? {};
+    if (id !== current) return;
+    const keep = new Set([...$("dclosed").querySelectorAll("details[open]")].map((x) => x.dataset.k));
+    fill("dopen", list(d.open).map(openCard), "Nothing open.");
+    fill("dup", list(d.upcoming).sort((a, b) => ms(a.when) - ms(b.when)).map(upCard), "Nothing upcoming.");
+    fill("dclosed", list(d.closed).sort((a, b) => ms(b.closed_at) - ms(a.closed_at)).map((x) => closedCard(x, keep)), "Nothing decided yet.");
+    $("decmsg").textContent = "";
+  } catch { if (id === current) $("decmsg").textContent = "Could not load the decisions."; }
+}
+
+const cents = (v) => (typeof v === "number" && isFinite(v) ? v : null);
+function money(c, cur) {
+  if (cents(c) == null) return "?";
+  cur = txt(cur).toUpperCase();
+  try { return new Intl.NumberFormat([], { style: "currency", currency: cur }).format(c / 100); }
+  catch { return (c / 100).toFixed(2) + (cur ? " " + cur : ""); }
+}
+const who = (name, id) => txt(name) || txt(id) || "someone";
+const stateOf = (s) => (s && typeof s === "object" ? Object.keys(s)[0] ?? "" : txt(s)).toLowerCase();
+function entry(main, bits, cls) {
+  const row = el("div", cls ? "fact " + cls : "fact"), top = el("div", "main");
+  top.append(...main);
+  row.append(top);
+  if (bits.length) row.append(meta(bits));
+  return row;
+}
+const promiseRow = (c) => entry([el("b", null, who(c.who_name, c.who)), " " + (txt(c.what) || "(no description)")],
+  [c.due ? "due " + when(c.due) : "no date", plain(c.status), txt(c.event)]);
+const lineRow = (l, cur) => entry([el("b", null, who(l.payer_name, l.payer)), " paid " + money(l.amount_cents, l.currency || cur) + " for " + (txt(l.what) || "something")],
+  [l.split != null && "split " + plain(l.split), l.created_at && when(l.created_at), l.voided && "voided"], l.voided ? "void" : "");
+function balanceRow(b, cur) {
+  const c = cents(b.cents), amount = money(c == null ? c : Math.abs(c), b.currency || cur);
+  return entry([el("b", null, who(b.name, b.user)), " " + (c == null ? "?" : c < 0 ? "owes " + amount : c > 0 ? "is owed " + amount : "is square")], []);
+}
+let ledgerTimer = 0;
+function refreshLedger() { clearTimeout(ledgerTimer); ledgerTimer = setTimeout(loadLedger, 250); }
+async function loadLedger() {
+  const id = current;
+  try {
+    const r = await fetch("/api/groups/" + encodeURIComponent(id) + "/ledger");
+    if (!r.ok) throw new Error(r.status);
+    const d = (await r.json()) ?? {};
+    if (id !== current) return;
+    const open = [], earlier = [];
+    for (const c of list(d.commitments)) (/^(done|dropped)/.test(stateOf(c.status)) ? earlier : open).push(c);
+    const due = (c) => ms(c.due) || 9e15, lines = list(d.lines).map((l, i) => [l, i]);
+    lines.sort((a, b) => ms(b[0].created_at) - ms(a[0].created_at) || b[1] - a[1]);
+    fill("lpromises", open.sort((a, b) => due(a) - due(b)).map(promiseRow), "Nothing open.");
+    $("learlier").hidden = !earlier.length;
+    $("learlier").querySelector("summary").textContent = "Earlier (" + earlier.length + ")";
+    $("learlierbody").replaceChildren(...earlier.sort((a, b) => ms(b.due) - ms(a.due)).map(promiseRow));
+    fill("llines", lines.map(([l]) => lineRow(l, d.currency)), "No lines yet.");
+    fill("lbalances", list(d.balances).map((b) => balanceRow(b, d.currency)), "No balances yet.");
+    $("lmsg").textContent = "";
+  } catch { if (id === current) $("lmsg").textContent = "Could not load the tab."; }
+}
+
+const TIERS = ["free", "windowed", "irreversible"], KNOWN = ["held", "sent", "failed"], ACTING = new Set(["send", "notice", "outside"]);
+const say = (v) => (typeof v === "string" ? v : plain(v));
+function tierOf(t) { const n = /^\d$/.test(txt(t)) ? +t : TIERS.indexOf(txt(t).toLowerCase()); return n < 3 ? n : -1; }
+function tierText(t) { const n = tierOf(t); return n < 0 ? txt(t) || "?" : n + " " + TIERS[n]; }
+const by = (label, name, id) => (txt(name) || txt(id)) && label + (txt(name) || txt(id));
+function statusNode(s) {
+  const word = stateOf(s), body = s && typeof s === "object" ? Object.values(s)[0] : null;
+  return el("span", KNOWN.includes(word) ? "st " + word : "st", word === "held" && body?.until ? "held until " + when(body.until) : word || "unknown");
+}
+function actionRow(a, keep) {
+  const box = el("details", stateOf(a.status) === "undone" ? "act void" : "act"), head = el("summary"), top = el("span");
+  Object.assign(box.dataset, { id: txt(a.id), tier: tierOf(a.tier) });
+  top.append(el("span", "k", when(a.at)), " ", el("b", null, txt(a.class) || "action"), " ", el("span", "tier t" + tierOf(a.tier), tierText(a.tier)), " ", statusNode(a.status));
+  head.append(top, el("span", "main", txt(a.summary) || "(no summary)"),
+    meta([by("asked by ", a.requested_by_name, a.requested_by), by("approved by ", a.approved_by_name, a.approved_by), txt(a.room)], "span"));
+  const more = el("div", "detail");
+  more.append(block("undo", say(a.undo) || "no undo recorded"), block("status", say(a.status)), block("outcome", a.outcome == null ? "none yet" : textOf(a.outcome)));
+  box.append(head, more);
+  box.open = keep.has(box.dataset.id);
+  return box;
+}
+function applyActions() {
+  let shown = 0, skipped = 0;
+  for (const row of $("actlist").querySelectorAll(".act")) {
+    row.hidden = $("actfree").checked && row.dataset.tier === "0";
+    row.hidden ? skipped++ : shown++;
+  }
+  $("actcount").textContent = count(shown, "action") + (skipped ? ", " + skipped + " free hidden" : "");
+}
+let actTimer = 0; $("actfree").addEventListener("change", applyActions);
+const refreshActions = () => { clearTimeout(actTimer); actTimer = setTimeout(loadActions, 250); };
+async function loadActions() {
+  const id = current;
+  try {
+    const r = await fetch("/api/groups/" + encodeURIComponent(id) + "/actions");
+    if (!r.ok) throw new Error(r.status);
+    const data = list(await r.json());
+    if (id !== current) return;
+    const keep = new Set([...$("actlist").querySelectorAll("details[open]")].map((x) => x.dataset.id));
+    fill("actlist", data.sort((a, b) => ms(b.at) - ms(a.at)).map((a) => actionRow(a, keep)), "No actions yet.");
+    applyActions();
+  } catch { if (id === current) $("actcount").textContent = "Could not load the actions."; }
+}
+const cells = (tag, ...texts) => { const r = el("tr"); texts.forEach((t) => r.append(el(tag, null, t))); return r; };
+async function loadCatalogue() {
+  try {
+    const r = await fetch("/api/catalogue");
+    if (!r.ok) throw new Error(r.status);
+    const rows = list(await r.json());
+    $("cattable").replaceChildren(cells("th", "Class", "Tier", "How it is undone"), ...rows.map((c) => cells("td", txt(c.class), tierText(c.tier), say(c.how_undone))));
+    $("catmsg").textContent = rows.length ? "" : "No action classes listed.";
+  } catch { $("catmsg").textContent = "Could not load the catalogue."; }
+}
+
+let current = null, charterTimer = 0;
+function refreshCharter() { clearTimeout(charterTimer); charterTimer = setTimeout(loadCharter, 250); }
+async function loadCharter() {
+  const id = current;
+  let text;
+  try {
+    const r = await fetch("/api/groups/" + encodeURIComponent(id) + "/charter");
+    text = r.ok ? await r.text() : r.status === 404 ? "No charter yet." : "Could not load the charter (" + r.status + ").";
+  } catch { text = "Cannot reach the server."; }
+  if (id === current) $("chartertext").textContent = text || "No charter yet.";
+}
+
+function openGroup(group, button) {
+  if (stream) stream.close();
+  for (const b of document.querySelectorAll(".g")) b.setAttribute("aria-pressed", String(b === button));
+  $("feed").replaceChildren();
+  current = group.id;
+  facts = []; $("memlist").replaceChildren(); $("memcount").textContent = "";
+  for (const box of ["dopen", "dup", "dclosed", "lpromises", "learlierbody", "llines", "lbalances", "actlist"]) $(box).replaceChildren();
+  $("decmsg").textContent = $("lmsg").textContent = $("actcount").textContent = "";
+  $("learlier").hidden = true;
+  $("personabody").replaceChildren(); $("profilebody").replaceChildren();
+  $("tabs").hidden = false;
+  showTab("feed");
+  loadCharter();
+  $("state").hidden = false;
+  $("state").open = false;
+  $("state").dataset.id = group.id;
+  const base = "/api/groups/" + encodeURIComponent(group.id);
+  $("declog").href = base + "/decisions.md";
+  const feed = "/ics/" + encodeURIComponent(group.id) + "/";
+  $("icsline").textContent = "Calendar feed: " + feed + "secret.ics, or " + feed + "secret/member.ics for one member. The agent gives members their links.";
+  let dropped = false;
+  stream = new EventSource(base + "/stream");
+  stream.onopen = () => {
+    if (dropped) $("feed").replaceChildren();
+    dropped = false;
+    setStatus("live", true);
+  };
+  stream.onmessage = (m) => addLine(JSON.parse(m.data));
+  stream.addEventListener("lagged", (m) => {
+    addLine({ at: new Date().toISOString(), kind: "feed", line: "missed " + m.data + " events" });
+    refreshCharter();
+    if (!$("decisions").hidden) refreshDecisions();
+    if (!$("ledger").hidden) refreshLedger();
+    if (!$("actions").hidden) refreshActions();
+  });
+  stream.onerror = () => {
+    dropped = true;
+    setStatus(stream.readyState === EventSource.CLOSED ? "stopped, reload to retry" : "reconnecting", false);
+  };
+  setStatus("connecting", false);
+  scrollTo(0, document.documentElement.scrollHeight);
+}
+
+$("state").addEventListener("toggle", async () => {
+  if (!$("state").open) return;
+  const r = await fetch("/api/groups/" + encodeURIComponent($("state").dataset.id) + "/state");
+  $("statebody").textContent = r.ok ? JSON.stringify(await r.json(), null, 2) : "Could not load state (" + r.status + ").";
+});
+
+async function load() {
+  $("host").textContent = location.host;
+  const r = await fetch("/api/groups");
+  if (r.status === 401) return fail("Not signed in. Open the link or scan the QR code from the host's terminal again.");
+  if (!r.ok) return fail("Could not load groups (" + r.status + ").");
+  const groups = await r.json();
+  if (!groups.length) return fail("No groups yet.");
+  for (const g of groups) {
+    const button = el("button", "g");
+    button.type = "button";
+    button.setAttribute("aria-pressed", "false");
+    const meta = [g.kind, g.platforms.join(", "), count(g.rooms, "room"), count(g.members, "member")].filter(Boolean).join(" · ");
+    button.append(el("b", null, g.name), el("span", "muted", meta));
+    button.addEventListener("click", () => openGroup(g, button));
+    $("groups").append(button);
+  }
+  if (groups.length === 1) $("groups").firstChild.click();
+}
+load().catch(() => fail("Cannot reach the server."));
+</script>
+</body>
+</html>

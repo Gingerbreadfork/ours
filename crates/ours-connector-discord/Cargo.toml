@@ -1,0 +1,25 @@
+[package]
+name = "ours-connector-discord"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+description = "Discord adapter for Ours, built on twilight"
+
+[dependencies]
+ours-types = { workspace = true }
+ours-connector = { workspace = true }
+anyhow = { workspace = true }
+async-trait = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+tracing = { workspace = true }
+twilight-gateway = { workspace = true }
+twilight-http = { workspace = true }
+twilight-model = { workspace = true }
+# Twilight enables no TLS provider itself. The workspace already builds aws-lc-rs for reqwest.
+rustls = { version = "0.23", default-features = false, features = ["aws-lc-rs", "std"] }
+
+[lints]
+workspace = true

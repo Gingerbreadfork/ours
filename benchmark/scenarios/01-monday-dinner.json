@@ -1,0 +1,41 @@
+{
+  "name": "monday-dinner",
+  "kind": "friends",
+  "description": "Six friends. A plan forms over three lines, the agent opens a poll with the two days on offer, stays quiet through the votes, and closes it once four of six pick Thursday. A late can't-do gets a short answer, not a reopened poll.",
+  "source": "DESIGN.md section 6, A week with friends, Monday and Tuesday",
+  "start": "2026-11-08T19:00:00Z",
+  "members": [
+    {"id": "sam", "name": "Sam", "role": "lead"},
+    {"id": "priya", "name": "Priya", "role": "lead"},
+    {"id": "jo", "name": "Jo", "role": "lead"},
+    {"id": "alex", "name": "Alex", "role": "lead"},
+    {"id": "marcus", "name": "Marcus", "role": "lead"},
+    {"id": "kim", "name": "Kim", "role": "lead"}
+  ],
+  "turns": [
+    {"t": 0, "from": "sam", "text": "evening all"},
+    {"t": 60, "from": "priya", "text": "hiya"},
+    {"t": 120, "from": "jo", "text": "hey hey"},
+    {"t": 180, "from": "alex", "text": "evening"},
+    {"t": 240, "from": "marcus", "text": "yo"},
+    {"t": 300, "from": "kim", "text": "hi all"},
+    {"t": 86400, "from": "sam", "text": "dinner this week?"},
+    {"t": 86460, "from": "priya", "text": "yes pls"},
+    {"t": 86520, "from": "jo", "text": "thurs or fri"},
+    {"t": 87000, "from": "sam", "reaction": {"to": "agent", "emoji": "1️⃣"}},
+    {"t": 87300, "from": "priya", "reaction": {"to": "agent", "emoji": "1️⃣"}},
+    {"t": 87600, "from": "alex", "reaction": {"to": "agent", "emoji": "2️⃣"}},
+    {"t": 87900, "from": "jo", "reaction": {"to": "agent", "emoji": "1️⃣"}},
+    {"t": 88200, "from": "kim", "reaction": {"to": "agent", "emoji": "1️⃣"}},
+    {"t": 90000, "from": "marcus", "text": "Noa I can't do thursday"}
+  ],
+  "expect": {
+    "0-5": {"speak": "must_not", "react": "must_not"},
+    "6": {"speak": "must_not", "note": "a plan with no options yet: wait"},
+    "7": {"speak": "must_not"},
+    "8": {"speak": "must", "action": "open_poll", "content_must_mention": ["thu", "fri"], "note": "two days on offer: open the poll"},
+    "9-12": {"speak": "must_not", "note": "votes need no commentary"},
+    "13": {"speak": "must", "action": "record_decision", "content_must_mention": ["thursday"], "note": "four of six: a majority of the group"},
+    "14": {"speak": "must", "content_must_mention": ["thursday"], "action_must_not": ["open_poll"], "note": "say who can still come; do not reopen on its own"}
+  }
+}

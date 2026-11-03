@@ -1,0 +1,28 @@
+{
+  "name": "unanswered-question",
+  "kind": "friends",
+  "description": "A question the room already answered a minute earlier goes unanswered. The agent raises a hand with a reaction once the twenty minute window passes, and answers only when someone reacts back. A second question that a person answers gets nothing.",
+  "source": "DESIGN.md section 7, Addressing",
+  "members": [
+    {"id": "sam", "name": "Sam", "role": "lead"},
+    {"id": "priya", "name": "Priya", "role": "lead"},
+    {"id": "jo", "name": "Jo", "role": "lead"},
+    {"id": "alex", "name": "Alex", "role": "lead"}
+  ],
+  "turns": [
+    {"t": 0, "from": "priya", "text": "Hobson's, half seven, thursday"},
+    {"t": 60, "from": "sam", "text": "what time was it again?"},
+    {"t": 1500, "from": "jo", "reaction": {"to": 1, "emoji": "👍"}},
+    {"t": 1800, "from": "sam", "text": "cheers"},
+    {"t": 2400, "from": "alex", "text": "who's booking the table?"},
+    {"t": 2460, "from": "priya", "text": "me, done already"}
+  ],
+  "expect": {
+    "0": {"speak": "must_not", "react": "must_not"},
+    "1": {"speak": "must_not", "react": "must", "note": "a 🙋 after the window, not an answer at once"},
+    "2": {"speak": "must", "content_must_mention": ["half seven|7:30|19:30"], "note": "someone reacted to the hand: now answer"},
+    "3": {"speak": "must_not"},
+    "4": {"speak": "must_not", "react": "must_not"},
+    "5": {"speak": "must_not", "react": "must_not", "note": "a person answered; no hand"}
+  }
+}

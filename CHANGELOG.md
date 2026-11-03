@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.1.0-rc.1
+## 0.1.0-rc.2
 
 First release candidate. Linux x86_64 and aarch64.
 

@@ -8,7 +8,7 @@ Wants=network-online.target
 After=network-online.target
 
 [Container]
-Image=ghcr.io/gingerbreadfork/ours:0.1.0-rc.1
+Image=ghcr.io/gingerbreadfork/ours:0.1.0-rc.2
 ContainerName=ours
 Volume=/etc/ours/ours.toml:/etc/ours/ours.toml:ro,Z
 Volume=ours-data:/data:U

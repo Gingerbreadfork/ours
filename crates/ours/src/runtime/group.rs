@@ -388,6 +388,7 @@ impl GroupRunner {
         let detail = detail_of(&input);
         let effects = step(&mut self.state, input, now);
         self.hub.publish(AdminEvent {
+            seq: 0,
             group: self.id.clone(),
             at: now,
             kind: label.to_owned(),
@@ -442,6 +443,7 @@ impl GroupRunner {
                     return;
                 }
                 self.hub.publish(AdminEvent {
+                    seq: 0,
                     group: self.id.clone(),
                     at: now,
                     kind: "send".to_owned(),
@@ -500,6 +502,7 @@ impl GroupRunner {
                     }
                 };
                 self.hub.publish(AdminEvent {
+                    seq: 0,
                     group: self.id.clone(),
                     at: now,
                     kind: "outside".to_owned(),
@@ -656,6 +659,7 @@ impl GroupRunner {
                     }
                 });
                 self.hub.publish(AdminEvent {
+                    seq: 0,
                     group: self.id.clone(),
                     at: now,
                     kind: "model".to_owned(),
@@ -666,6 +670,7 @@ impl GroupRunner {
             Effect::Redact { messages, user } => self.redact(messages, user, now).await,
             Effect::Notice(line) => {
                 self.hub.publish(AdminEvent {
+                    seq: 0,
                     group: self.id.clone(),
                     at: now,
                     kind: "notice".to_owned(),
@@ -747,6 +752,7 @@ impl GroupRunner {
         };
         tracing::info!(group = %self.id, %line);
         self.hub.publish(AdminEvent {
+            seq: 0,
             group: self.id.clone(),
             at: now,
             kind: "redact".to_owned(),
@@ -779,6 +785,7 @@ impl GroupRunner {
         }
         self.hub.set_charter(&self.id, charter.clone());
         self.hub.publish(AdminEvent {
+            seq: 0,
             group: self.id.clone(),
             at: Instant::from(jiff::Timestamp::now()),
             kind: "charter".to_owned(),

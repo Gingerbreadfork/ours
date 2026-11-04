@@ -20,6 +20,9 @@ pub struct GroupSummary {
 /// One line of the live feed: something the agent saw or did.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct AdminEvent {
+    /// Set by the host when it publishes the event, rising with each one.
+    #[serde(default)]
+    pub seq: u64,
     pub group: GroupId,
     pub at: Instant,
     pub kind: String,

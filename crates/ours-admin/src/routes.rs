@@ -456,9 +456,10 @@ async fn group_stream(
     // Subscribe before reading the backlog so no event falls in between.
     let receiver = state.source.subscribe();
     let backlog = state.source.recent(&id, query.get()).await;
-    let replay = stream::iter(backlog.clone().into_iter().map(Item::Event));
+    let shown = backlog.iter().map(|event| event.seq).max().unwrap_or(0);
+    let replay = stream::iter(backlog.into_iter().map(Item::Event));
     let feed = replay
-        .chain(live(receiver, id, backlog))
+        .chain(live(receiver, id, shown))
         .filter_map(|item| async move { item.into_sse() })
         .map(Ok);
     Ok(Sse::new(feed).keep_alive(KeepAlive::default()))
@@ -494,30 +495,22 @@ impl Item {
     }
 }
 
-/// Live events for one group. Events already in `backlog` are skipped so
-/// the replay and the channel do not show a line twice.
+/// Live events for one group. Events up to `shown`, the newest seq the
+/// backlog replayed, are skipped so no line appears twice.
 fn live(
     receiver: broadcast::Receiver<AdminEvent>,
     group: GroupId,
-    backlog: Vec<AdminEvent>,
+    shown: u64,
 ) -> impl Stream<Item = Item> {
     stream::unfold(
-        (receiver, group, backlog),
-        |(mut receiver, group, mut backlog)| async move {
+        (receiver, group, shown),
+        |(mut receiver, group, shown)| async move {
             loop {
                 match receiver.recv().await {
-                    Ok(event) if event.group != group => {}
-                    Ok(event) => {
-                        if let Some(at) = backlog.iter().position(|seen| *seen == event) {
-                            backlog.remove(at);
-                            continue;
-                        }
-                        // Duplicates can only be the first events queued.
-                        backlog.clear();
-                        return Some((Item::Event(event), (receiver, group, backlog)));
-                    }
+                    Ok(event) if event.group != group || event.seq <= shown => {}
+                    Ok(event) => return Some((Item::Event(event), (receiver, group, shown))),
                     Err(RecvError::Lagged(missed)) => {
-                        return Some((Item::Lagged(missed), (receiver, group, backlog)));
+                        return Some((Item::Lagged(missed), (receiver, group, shown)));
                     }
                     Err(RecvError::Closed) => return None,
                 }

@@ -10,6 +10,7 @@ use ours_core::Input;
 use ours_store::{EventLog, StoreDir};
 use ours_types::GroupId;
 use std::collections::{HashMap, VecDeque};
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use tokio::sync::{broadcast, mpsc, oneshot};
 
@@ -44,6 +45,7 @@ struct Inner {
     groups: RwLock<HashMap<GroupId, GroupView>>,
     catalogue: RwLock<Vec<serde_json::Value>>,
     sender: broadcast::Sender<AdminEvent>,
+    next_seq: AtomicU64,
     host: RwLock<Option<HostFacts>>,
     store: RwLock<Option<Arc<StoreDir>>>,
 }
@@ -61,6 +63,7 @@ impl AdminHub {
                 groups: RwLock::new(HashMap::new()),
                 catalogue: RwLock::new(Vec::new()),
                 sender: broadcast::channel(CHANNEL_CAPACITY).0,
+                next_seq: AtomicU64::new(0),
                 host: RwLock::new(None),
                 store: RwLock::new(None),
             }),
@@ -282,14 +285,15 @@ impl AdminHub {
 
     /// Records the event for the page's backlog and announces it. Call this
     /// only after the input or effect it describes has been persisted.
-    pub fn publish(&self, event: AdminEvent) {
-        {
-            let mut groups = self.inner.groups.write().unwrap_or_else(|e| e.into_inner());
-            let view = groups.entry(event.group.clone()).or_default();
-            view.recent.push_back(event.clone());
-            while view.recent.len() > RECENT_KEPT {
-                view.recent.pop_front();
-            }
+    /// The event's `seq` is set here, under the lock, so the backlog and the
+    /// live channel see events in the same order.
+    pub fn publish(&self, mut event: AdminEvent) {
+        let mut groups = self.inner.groups.write().unwrap_or_else(|e| e.into_inner());
+        event.seq = self.inner.next_seq.fetch_add(1, Ordering::Relaxed) + 1;
+        let view = groups.entry(event.group.clone()).or_default();
+        view.recent.push_back(event.clone());
+        while view.recent.len() > RECENT_KEPT {
+            view.recent.pop_front();
         }
         let _ = self.inner.sender.send(event);
     }

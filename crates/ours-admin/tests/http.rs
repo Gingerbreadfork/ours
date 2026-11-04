@@ -327,6 +327,7 @@ fn fact(id: &str, retracted: Value) -> Value {
 
 fn event(group: &str, seconds: i64, line: &str) -> AdminEvent {
     AdminEvent {
+        seq: u64::try_from(seconds).unwrap_or(0),
         group: GroupId::new(group),
         at: Instant::UNIX_EPOCH.plus_seconds(seconds),
         kind: "triage".into(),
@@ -1096,6 +1097,21 @@ async fn stream_does_not_repeat_an_event_that_is_also_in_the_backlog() -> Result
     tx.send(event("g1", 12, "fresh line"))?;
     let next = next_chunk(&mut chunks).await?;
     assert!(next.contains("fresh line"), "got {next:?}");
+    Ok(())
+}
+
+#[tokio::test]
+async fn stream_shows_a_new_event_that_reads_like_one_in_the_backlog() -> Result<()> {
+    let (app, tx) = app();
+    let response = get(&app, "/api/groups/g1/stream?limit=1", &bearer()).await?;
+    let mut chunks: Chunks = Box::pin(response.into_body().into_data_stream());
+    assert!(next_chunk(&mut chunks).await?.contains("replayed line"));
+
+    let mut again = event("g1", 2, "replayed line");
+    again.seq = 13;
+    tx.send(again)?;
+    let next = next_chunk(&mut chunks).await?;
+    assert!(next.contains("replayed line"), "got {next:?}");
     Ok(())
 }
 

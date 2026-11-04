@@ -21,8 +21,19 @@ impl Instant {
         self.0.as_millisecond()
     }
 
+    /// Stops at the ends of the supported range instead of overflowing, so
+    /// a far-off time read from a message cannot panic the fold.
     pub fn plus_seconds(self, seconds: i64) -> Instant {
-        Instant(self.0 + jiff::SignedDuration::from_secs(seconds))
+        let edge = if seconds < 0 {
+            jiff::Timestamp::MIN
+        } else {
+            jiff::Timestamp::MAX
+        };
+        Instant(
+            self.0
+                .checked_add(jiff::SignedDuration::from_secs(seconds))
+                .unwrap_or(edge),
+        )
     }
 
     pub fn seconds_since(self, earlier: Instant) -> i64 {
@@ -59,5 +70,28 @@ impl JsonSchema for Instant {
             "format": "date-time",
             "description": "An RFC 3339 timestamp in UTC"
         })
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn plus_seconds_stops_at_the_ends_of_the_range() {
+        let late = Instant(jiff::Timestamp::MAX).plus_seconds(-10);
+        assert_eq!(late.plus_seconds(86_400), Instant(jiff::Timestamp::MAX));
+        let early = Instant(jiff::Timestamp::MIN).plus_seconds(10);
+        assert_eq!(early.plus_seconds(-86_400), Instant(jiff::Timestamp::MIN));
+        assert_eq!(
+            Instant::UNIX_EPOCH.plus_seconds(i64::MAX),
+            Instant(jiff::Timestamp::MAX)
+        );
+    }
+
+    #[test]
+    fn plus_seconds_inside_the_range_is_exact() {
+        let at = Instant::UNIX_EPOCH.plus_seconds(90);
+        assert_eq!(at.seconds_since(Instant::UNIX_EPOCH), 90);
     }
 }

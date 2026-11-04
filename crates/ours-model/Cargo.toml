@@ -8,7 +8,7 @@ rust-version.workspace = true
 [dependencies]
 ours-types = { workspace = true }
 async-trait = { workspace = true }
-jiff = { workspace = true }
+jiff = { workspace = true, features = ["tzdb-bundle-always"] }
 reqwest = { workspace = true }
 schemars = { workspace = true }
 serde = { workspace = true }

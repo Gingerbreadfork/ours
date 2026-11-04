@@ -6,11 +6,12 @@ use std::fmt::Write as _;
 use std::sync::Arc;
 
 use async_trait::async_trait;
+use jiff::tz::{TimeZone, TimeZoneDatabase};
 use ours_types::{CommitmentDraft, ExtractRequest, Extraction, FactDraft, GroupId, LedgerDraft};
 use schemars::JsonSchema;
 use serde::Deserialize;
 use serde_json::Value;
-use tracing::{Instrument, field, info_span};
+use tracing::{Instrument, field, info_span, warn};
 
 use crate::schema::strict_schema;
 use crate::text::{clip, flat};
@@ -20,6 +21,7 @@ const MAX_TOKENS: u32 = 1000;
 const SCHEMA_NAME: &str = "extraction";
 const MAX_PER_KIND: usize = 5;
 const MAX_QUOTE_CHARS: usize = 120;
+const MAX_LOGGED_DATE_CHARS: usize = 40;
 
 /// Pulls facts, commitments and ledger lines out of one message. A failure
 /// leaves the caller with nothing from that message.
@@ -110,7 +112,7 @@ impl SmallModelExtractor {
                 raw: response.json.to_string(),
             }
         })?;
-        Ok(tidy(output))
+        Ok(tidy(output, &zone(&request.timezone)))
     }
 }
 
@@ -144,16 +146,24 @@ impl Extractor for SmallModelExtractor {
 }
 
 /// Cleans every draft, drops the ones with nothing to say and keeps the
-/// first `MAX_PER_KIND` of each kind.
-fn tidy(output: Output) -> Extraction {
+/// first `MAX_PER_KIND` of each kind. Times are read in `zone`.
+fn tidy(output: Output, zone: &TimeZone) -> Extraction {
     Extraction {
-        facts: keep(output.facts, tidy_fact),
-        commitments: keep(output.commitments, tidy_commitment),
+        facts: keep(output.facts, |draft| tidy_fact(draft, zone)),
+        commitments: keep(output.commitments, |draft| tidy_commitment(draft, zone)),
         ledger: keep(output.ledger, tidy_ledger_line),
     }
 }
 
-fn keep<T>(drafts: Vec<T>, tidy_one: fn(T) -> Option<T>) -> Vec<T> {
+/// The named zone from the bundled database, or UTC when the name is
+/// unknown, as the engine reads it.
+fn zone(name: &str) -> TimeZone {
+    TimeZoneDatabase::bundled()
+        .get(name)
+        .unwrap_or(TimeZone::UTC)
+}
+
+fn keep<T>(drafts: Vec<T>, tidy_one: impl Fn(T) -> Option<T>) -> Vec<T> {
     drafts
         .into_iter()
         .filter_map(tidy_one)
@@ -161,24 +171,24 @@ fn keep<T>(drafts: Vec<T>, tidy_one: fn(T) -> Option<T>) -> Vec<T> {
         .collect()
 }
 
-fn tidy_fact(draft: FactDraft) -> Option<FactDraft> {
+fn tidy_fact(draft: FactDraft, zone: &TimeZone) -> Option<FactDraft> {
     Some(FactDraft {
         subject: required(&draft.subject)?,
         predicate: required(&draft.predicate)?,
         object: required(&draft.object)?,
-        expires: when(draft.expires),
-        starts: when(draft.starts),
+        expires: when(draft.expires, zone),
+        starts: when(draft.starts, zone),
         quote: quote(draft.quote),
         ..draft
     })
 }
 
-fn tidy_commitment(draft: CommitmentDraft) -> Option<CommitmentDraft> {
+fn tidy_commitment(draft: CommitmentDraft, zone: &TimeZone) -> Option<CommitmentDraft> {
     Some(CommitmentDraft {
         who: required(&draft.who)?,
         what: required(&draft.what)?,
         for_whom: optional(draft.for_whom),
-        due: when(draft.due),
+        due: when(draft.due, zone),
         event: optional(draft.event),
         quote: quote(draft.quote),
         ..draft
@@ -219,9 +229,15 @@ fn quote(text: Option<String>) -> Option<String> {
     text.and_then(|text| required(&clip(text.trim(), MAX_QUOTE_CHARS)))
 }
 
-/// A date or date and time the model gave, or None when it is not a real one.
-fn when(text: Option<String>) -> Option<String> {
-    optional(text).filter(|text| is_date_or_time(text))
+/// A date or date and time the model gave, in the form the engine reads, or
+/// None when it is not a real one.
+fn when(text: Option<String>, zone: &TimeZone) -> Option<String> {
+    let text = optional(text)?;
+    let found = date_or_time(&text, zone);
+    if found.is_none() {
+        warn!(value = %clip(&flat(&text), MAX_LOGGED_DATE_CHARS), "dropped a date the model gave");
+    }
+    found
 }
 
 /// An upper-case ISO 4217 shape: exactly three letters.
@@ -230,12 +246,57 @@ fn currency(text: &str) -> Option<String> {
     (code.chars().count() == 3 && code.chars().all(|c| c.is_ascii_alphabetic())).then_some(code)
 }
 
-/// True for YYYY-MM-DD or YYYY-MM-DDTHH:MM.
-fn is_date_or_time(text: &str) -> bool {
-    match text.split_once('T') {
-        None => is_iso_date(text),
-        Some((date, clock)) => is_iso_date(date) && is_clock(clock),
+/// YYYY-MM-DD, or YYYY-MM-DDTHH:MM on the clock in `zone`. Seconds are
+/// dropped and a numeric offset is moved into `zone`. A bare Z is read as
+/// the group's clock, since the model is asked for local times and adds Z
+/// by habit far more often than it converts to UTC.
+fn date_or_time(text: &str, zone: &TimeZone) -> Option<String> {
+    let Some((date, time)) = text.split_once('T') else {
+        return is_iso_date(text).then(|| text.to_owned());
+    };
+    let (clock, offset) = split_clock(time)?;
+    if !is_iso_date(date) {
+        return None;
     }
+    if offset.is_empty() || offset == "Z" {
+        return Some(format!("{date}T{clock}"));
+    }
+    if !is_offset(offset) {
+        return None;
+    }
+    let at: jiff::Timestamp = text.parse().ok()?;
+    Some(
+        at.to_zoned(zone.clone())
+            .strftime("%Y-%m-%dT%H:%M")
+            .to_string(),
+    )
+}
+
+/// The HH:MM at the start of HH:MM, HH:MM:SS or HH:MM:SS.fff, and the text
+/// after it.
+fn split_clock(text: &str) -> Option<(&str, &str)> {
+    let clock = text.get(..5).filter(|clock| is_clock(clock))?;
+    let mut rest = &text[5..];
+    if let Some(after) = rest.strip_prefix(':') {
+        let seconds = after.get(..2)?;
+        if !seconds.bytes().all(|b| b.is_ascii_digit()) || seconds >= "60" {
+            return None;
+        }
+        rest = &after[2..];
+        if let Some(fraction) = rest.strip_prefix('.') {
+            let digits = fraction.bytes().take_while(u8::is_ascii_digit).count();
+            if digits == 0 {
+                return None;
+            }
+            rest = &fraction[digits..];
+        }
+    }
+    Some((clock, rest))
+}
+
+/// True for a UTC offset written as Z, +HH:MM or -HH:MM.
+fn is_offset(text: &str) -> bool {
+    text == "Z" || text.strip_prefix(['+', '-']).is_some_and(is_clock)
 }
 
 /// True for a time of day written as HH:MM.
@@ -490,6 +551,10 @@ mod tests {
         }
     }
 
+    fn tidy_utc(output: Output) -> Extraction {
+        tidy(output, &TimeZone::UTC)
+    }
+
     fn output(
         facts: Vec<FactDraft>,
         commitments: Vec<CommitmentDraft>,
@@ -668,7 +733,11 @@ mod tests {
             "2026-11-07T23:59",
             "2028-02-29T18:30",
         ] {
-            assert!(is_date_or_time(good), "{good}");
+            assert_eq!(
+                date_or_time(good, &TimeZone::UTC).as_deref(),
+                Some(good),
+                "{good}"
+            );
         }
         for bad in [
             "",
@@ -679,17 +748,75 @@ mod tests {
             "2026-11-07T10:0",
             "2026-11-07T24:00",
             "2026-11-07T10:60",
-            "2026-11-07T10:00:00",
-            "2026-11-07T10:00Z",
+            "2026-11-07T10:00:60",
+            "2026-11-07T10:00:5",
+            "2026-11-07T10:00:00.",
+            "2026-11-07T10:00:00 ",
+            "2026-11-07T10:00+1",
+            "2026-11-07T10:00+25:00",
+            "2026-11-07T10:00UTC",
             "2026-11-07 10:00",
             "2026-11-07t10:00",
             "2026-02-30T10:00",
+            "2026-02-30T10:00Z",
             "T10:00",
             "2026-11-07T10:0é",
             "2026-11-07TT10:00",
         ] {
-            assert!(!is_date_or_time(bad), "{bad}");
+            assert_eq!(date_or_time(bad, &TimeZone::UTC), None, "{bad}");
         }
+    }
+
+    #[test]
+    fn seconds_are_dropped_and_a_numeric_offset_is_moved_into_the_zone() {
+        let london = zone("Europe/London");
+        for (given, read) in [
+            ("2026-11-07T19:00:00", "2026-11-07T19:00"),
+            ("2026-11-07T19:00:59.250", "2026-11-07T19:00"),
+            ("2026-11-07T19:00Z", "2026-11-07T19:00"),
+            ("2026-11-07T19:00:00Z", "2026-11-07T19:00"),
+            ("2026-11-07T19:00:00+01:00", "2026-11-07T18:00"),
+            ("2026-07-07T19:00:00Z", "2026-07-07T19:00"),
+            ("2026-07-07T19:00:00+00:00", "2026-07-07T20:00"),
+            ("2026-11-07T23:30:00-05:00", "2026-11-08T04:30"),
+        ] {
+            assert_eq!(
+                date_or_time(given, &london).as_deref(),
+                Some(read),
+                "{given}"
+            );
+        }
+    }
+
+    #[test]
+    fn an_unknown_zone_reads_as_utc() {
+        assert_eq!(
+            date_or_time("2026-07-07T19:00+02:00", &zone("Mars/Olympus")).as_deref(),
+            Some("2026-07-07T17:00")
+        );
+    }
+
+    #[test]
+    fn a_due_time_with_seconds_or_an_offset_is_kept() {
+        let found = tidy(
+            output(
+                vec![],
+                vec![
+                    CommitmentDraft {
+                        due: Some("2026-11-07T19:00:00".into()),
+                        ..commitment()
+                    },
+                    CommitmentDraft {
+                        due: Some("2026-07-07T19:00:00+00:00".into()),
+                        ..commitment()
+                    },
+                ],
+                vec![],
+            ),
+            &zone("Europe/London"),
+        );
+        let dues: Vec<Option<&str>> = found.commitments.iter().map(|c| c.due.as_deref()).collect();
+        assert_eq!(dues, [Some("2026-11-07T19:00"), Some("2026-07-07T20:00")]);
     }
 
     #[test]
@@ -710,7 +837,7 @@ mod tests {
             object: " yes ".into(),
             ..draft()
         };
-        let found = tidy(output(
+        let found = tidy_utc(output(
             vec![
                 messy,
                 FactDraft {
@@ -737,7 +864,7 @@ mod tests {
 
     #[test]
     fn tidy_trims_and_drops_empty_commitments() {
-        let found = tidy(output(
+        let found = tidy_utc(output(
             vec![],
             vec![
                 CommitmentDraft {
@@ -768,7 +895,7 @@ mod tests {
 
     #[test]
     fn tidy_trims_and_drops_empty_ledger_lines() {
-        let found = tidy(output(
+        let found = tidy_utc(output(
             vec![],
             vec![],
             vec![
@@ -825,7 +952,7 @@ mod tests {
             ..line()
         }));
 
-        let found = tidy(output(facts, commitments, ledger));
+        let found = tidy_utc(output(facts, commitments, ledger));
 
         let objects: Vec<&str> = found.facts.iter().map(|d| d.object.as_str()).collect();
         assert_eq!(objects, ["o0", "o1", "o2", "o3", "o4"]);
@@ -839,7 +966,7 @@ mod tests {
     fn tidy_cuts_quotes_and_clears_blank_ones_in_all_three_kinds() {
         let long = format!("  {}  ", "é".repeat(200));
         let cut = "é".repeat(120);
-        let found = tidy(output(
+        let found = tidy_utc(output(
             vec![
                 FactDraft {
                     quote: Some(long.clone()),
@@ -881,7 +1008,7 @@ mod tests {
 
     #[test]
     fn tidy_keeps_good_dates_and_clears_bad_ones() {
-        let found = tidy(output(
+        let found = tidy_utc(output(
             vec![
                 FactDraft {
                     durable: false,
@@ -938,7 +1065,7 @@ mod tests {
 
     #[test]
     fn tidy_drops_ledger_lines_without_a_usable_amount() {
-        let found = tidy(output(
+        let found = tidy_utc(output(
             vec![],
             vec![],
             [
@@ -981,6 +1108,6 @@ mod tests {
     #[test]
     fn a_reply_with_arrays_left_out_reads_as_empty() {
         let output: Output = serde_json::from_value(json!({ "facts": [] })).unwrap();
-        assert_eq!(tidy(output), Extraction::default());
+        assert_eq!(tidy_utc(output), Extraction::default());
     }
 }

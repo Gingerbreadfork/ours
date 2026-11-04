@@ -645,6 +645,37 @@ async fn a_bad_due_becomes_none() {
 }
 
 #[tokio::test]
+async fn a_due_with_seconds_or_an_offset_is_read_on_the_group_clock() {
+    let server = MockServer::start().await;
+    let due = |value: &str| {
+        let mut c = commitment("Sam", "send the notes");
+        c["due"] = json!(value);
+        c
+    };
+    mount(
+        &server,
+        reply(commitments(vec![
+            due("2026-11-03T19:00:00"),
+            due("2026-07-03T19:00:00+00:00"),
+            due("2026-07-03T19:00:00Z"),
+        ])),
+    )
+    .await;
+
+    let found = extract(&server).await;
+
+    let dues: Vec<Option<&str>> = found.commitments.iter().map(|c| c.due.as_deref()).collect();
+    assert_eq!(
+        dues,
+        [
+            Some("2026-11-03T19:00"),
+            Some("2026-07-03T20:00"),
+            Some("2026-07-03T19:00")
+        ]
+    );
+}
+
+#[tokio::test]
 async fn a_bad_amount_drops_the_line() {
     let server = MockServer::start().await;
     mount(

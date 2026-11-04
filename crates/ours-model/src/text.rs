@@ -8,12 +8,17 @@ pub(crate) fn flat(text: &str) -> String {
     let mut out: String = text
         .chars()
         .take(MAX_LINE_CHARS)
-        .map(|c| if c.is_control() { ' ' } else { c })
+        .map(|c| if breaks_line(c) { ' ' } else { c })
         .collect();
     if text.chars().count() > MAX_LINE_CHARS {
         out.push_str("...");
     }
     out
+}
+
+/// True for control characters and the Unicode line and paragraph separators.
+fn breaks_line(c: char) -> bool {
+    c.is_control() || matches!(c, '\u{2028}' | '\u{2029}')
 }
 
 /// At most `max` characters of `text`, without a trailing space.
@@ -27,6 +32,14 @@ pub(crate) fn clip(text: &str, max: usize) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn flat_turns_every_line_break_into_a_space() {
+        assert_eq!(
+            flat("a\nb\r\nc\u{85}d\u{2028}e\u{2029}f\tg"),
+            "a b  c d e f g"
+        );
+    }
 
     #[test]
     fn clip_never_splits_a_character() {

@@ -2,12 +2,14 @@
 //! needs no public URL. Updates feed the engine's event model and the
 //! engine's actions go out as Bot API calls. Mapping lives in `map`,
 //! `text`, `reaction` and `poll` as pure functions; `state` holds the chat
-//! cache and decides which events to emit; `actions` does the calls.
+//! cache and decides which events to emit; `actions` does the calls; `disk`
+//! keeps the poll records across restarts.
 
 #![cfg_attr(test, allow(clippy::unwrap_used, clippy::expect_used))]
 
 mod actions;
 mod api;
+mod disk;
 pub mod map;
 pub mod poll;
 pub mod reaction;
@@ -30,6 +32,7 @@ use ours_types::{
     Capabilities, InboundEvent, Instant, Outbound, OutboundAction, Platform, PlatformRole,
 };
 use state::{ChatInfo, State, Want};
+use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
@@ -100,6 +103,7 @@ pub struct TelegramConnector {
     config: TelegramConfig,
     api_base: String,
     chats: Vec<i64>,
+    state_dir: Option<PathBuf>,
 }
 
 impl TelegramConnector {
@@ -115,6 +119,7 @@ impl TelegramConnector {
             config,
             api_base: DEFAULT_API_BASE.to_owned(),
             chats: Vec::new(),
+            state_dir: None,
         })
     }
 
@@ -138,6 +143,13 @@ impl TelegramConnector {
         }
         self
     }
+
+    /// Keep the agent's poll records in this directory, so votes on a poll
+    /// opened before a restart still count. Without it they last one run.
+    pub fn with_state_dir(mut self, dir: impl Into<PathBuf>) -> Self {
+        self.state_dir = Some(dir.into());
+        self
+    }
 }
 
 #[async_trait]
@@ -159,6 +171,7 @@ impl Connector for TelegramConnector {
             config,
             api_base,
             chats,
+            state_dir,
         } = *self;
         let api = Arc::new(Api::new(&api_base, &config.token)?);
 
@@ -175,7 +188,17 @@ impl Connector for TelegramConnector {
             }
         };
         check_settings(&me);
-        let state = Arc::new(Mutex::new(State::new(config.agent_name.clone(), &me)));
+        let mut state = State::new(config.agent_name.clone(), &me);
+        let writer = match state_dir {
+            Some(dir) => {
+                state.restore_polls(disk::load(&dir).await);
+                let (saver, writer) = disk::start(dir);
+                state.save_polls(saver);
+                Some(writer)
+            }
+            None => None,
+        };
+        let state = Arc::new(Mutex::new(state));
         let _ = queue.send(InboundEvent::Ready {
             platform: Platform::Telegram,
             me: map::user_id(me.id),
@@ -194,24 +217,30 @@ impl Connector for TelegramConnector {
             queue,
             pacing: Pacing::LIVE,
         };
-        let reason = tokio::select! {
+        let (reason, worker_done) = tokio::select! {
             reason = async {
                 if io.sync_chats(&chats).await {
                     io.poll().await
                 } else {
                     None
                 }
-            } => reason,
+            } => (reason, false),
             done = &mut worker => {
                 if let Err(error) = done {
                     tracing::error!(%error, "action worker stopped");
                 }
-                return Ok(());
+                (None, true)
             }
         };
-        worker.abort();
-        let _ = worker.await;
+        if !worker_done {
+            worker.abort();
+            let _ = worker.await;
+        }
+        // The writer finishes once the state is gone and its last change is saved.
         drop(io);
+        if let Some(writer) = writer {
+            let _ = writer.await;
+        }
         match reason {
             Some(reason) => give_up(reason, forwarder, &inbound).await,
             None => Ok(()),
@@ -703,6 +732,130 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn giving_up_waits_for_a_stalled_engine_and_tells_it_last() {
+        let (queue, queued) = mpsc::unbounded_channel();
+        let (inbound, mut engine) = mpsc::channel(1);
+        let forwarder = tokio::spawn(forward(queued, inbound.clone()));
+        let deleted = |n: u32| InboundEvent::MessageDeleted {
+            room: ours_types::PlatformRoomId::new(n.to_string()),
+            id: "1".into(),
+        };
+        for n in 0..3 {
+            queue.send(deleted(n)).unwrap();
+        }
+        drop(queue);
+        let giving_up =
+            tokio::spawn(async move { give_up("revoked".to_owned(), forwarder, &inbound).await });
+        for _ in 0..10 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!giving_up.is_finished());
+
+        let mut seen = Vec::new();
+        while let Some(event) = engine.recv().await {
+            seen.push(event);
+        }
+        assert_eq!(
+            seen,
+            [
+                deleted(0),
+                deleted(1),
+                deleted(2),
+                InboundEvent::Disconnected {
+                    platform: Platform::Telegram,
+                    reason: "revoked".to_owned(),
+                },
+            ]
+        );
+        let error = giving_up.await.unwrap().unwrap_err();
+        assert_eq!(error.to_string(), "revoked");
+    }
+
+    #[tokio::test]
+    async fn a_vote_on_a_poll_from_before_a_restart_reaches_the_engine() {
+        let dir = tempfile::tempdir().unwrap();
+        let server = MockServer::start().await;
+        let connector = || {
+            TelegramConnector::new(config())
+                .unwrap()
+                .with_api_base(server.uri())
+                .with_state_dir(dir.path().join("telegram"))
+        };
+        let idle = || {
+            Mock::given(method("POST"))
+                .and(path(route("getUpdates")))
+                .respond_with(ok(json!([])).set_delay(Duration::from_millis(20)))
+        };
+        Mock::given(method("POST"))
+            .and(path(route("getMe")))
+            .respond_with(ok(bot_json()))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(route("sendPoll")))
+            .respond_with(ok(json!({ "message_id": 300, "date": 1, "chat": group_chat(GROUP, false),
+                "poll": { "id": "P9", "question": "when?", "total_voter_count": 0, "is_closed": false,
+                    "is_anonymous": false, "type": "regular",
+                    "options": [{ "text": "Thu", "voter_count": 0 }, { "text": "Fri", "voter_count": 0 }] } })))
+            .mount(&server)
+            .await;
+        idle().mount(&server).await;
+
+        let (inbound, mut engine) = mpsc::channel(8);
+        let (send, outbound) = mpsc::channel(8);
+        let run = tokio::spawn(Box::new(connector()).run(inbound, outbound));
+        let poll = Outbound::new(OutboundAction::CreatePoll {
+            room: GROUP.to_string().into(),
+            question: "when?".to_owned(),
+            options: vec!["Thu".to_owned(), "Fri".to_owned()],
+            multiple: false,
+            hours: 24,
+        });
+        send.send(poll).await.unwrap();
+        loop {
+            match engine.recv().await.unwrap() {
+                InboundEvent::ActionResult { ok, .. } => break assert!(ok),
+                _ => continue,
+            }
+        }
+        drop(send);
+        assert!(run.await.unwrap().is_ok());
+
+        server.reset().await;
+        Mock::given(method("POST"))
+            .and(path(route("getMe")))
+            .respond_with(ok(bot_json()))
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(route("getUpdates")))
+            .respond_with(ok(
+                json!([{ "update_id": 5, "poll_answer": { "poll_id": "P9",
+                "user": person(SAM), "option_ids": [1], "option_persistent_ids": ["b"] } }]),
+            ))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        idle().mount(&server).await;
+
+        let (inbound, mut engine) = mpsc::channel(8);
+        let (send, outbound) = mpsc::channel(8);
+        let run = tokio::spawn(Box::new(connector()).run(inbound, outbound));
+        assert!(matches!(
+            engine.recv().await,
+            Some(InboundEvent::Ready { .. })
+        ));
+        let vote = tokio::time::timeout(Duration::from_secs(5), engine.recv()).await;
+        assert!(
+            matches!(&vote, Ok(Some(InboundEvent::PollVote { message, option: 1, added: true, .. }))
+                if message.as_str() == "300"),
+            "{vote:?}"
+        );
+        drop(send);
+        assert!(run.await.unwrap().is_ok());
+    }
+
+    #[tokio::test]
     async fn a_401_while_polling_stops_the_loop_and_names_the_token() {
         let server = MockServer::start().await;
         Mock::given(method("POST"))
@@ -840,7 +993,7 @@ mod tests {
         );
         assert!(matches!(
             events.recv().await,
-            Some(InboundEvent::MemberJoined { .. })
+            Some(InboundEvent::MemberUpdated { .. })
         ));
         assert!(matches!(
             events.recv().await,

@@ -94,7 +94,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                         token: section.token.clone().unwrap_or_default(),
                         agent_name: section.agent_name.clone(),
                     })?
-                    .with_chats(chats),
+                    .with_chats(chats)
+                    .with_state_dir(config.host.data_dir.join("telegram")),
                 )
             }
             other => anyhow::bail!("the {other:?} connector is not built yet"),

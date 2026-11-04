@@ -294,15 +294,19 @@ impl Actions {
     }
 
     /// Send text in as many pieces as it takes. The first piece carries the
-    /// reply and is the message the engine is told about.
+    /// reply and is the message the engine is told about. Once it is out, a
+    /// later piece that fails cuts the message short there, and the send
+    /// still succeeds.
     async fn send(
         &self,
         target: Target,
         text: &str,
         reply: Option<i32>,
     ) -> Result<TgMessage, ActionError> {
+        let pieces = split_message(text, MESSAGE_LIMIT);
+        let total = pieces.len();
         let mut first = None;
-        for (i, piece) in split_message(text, MESSAGE_LIMIT).into_iter().enumerate() {
+        for (i, piece) in pieces.into_iter().enumerate() {
             let reply = reply.filter(|_| i == 0).map(|message_id| {
                 ReplyParameters::builder()
                     .message_id(message_id)
@@ -316,7 +320,21 @@ impl Actions {
                 .link_preview_options(LinkPreviewOptions::DISABLED)
                 .maybe_reply_parameters(reply)
                 .build();
-            let sent = self.api.send_message(&params).await?;
+            let sent = match self.api.send_message(&params).await {
+                Ok(sent) => sent,
+                Err(error) => {
+                    let Some(first) = first else {
+                        return Err(error.into());
+                    };
+                    tracing::warn!(
+                        %error,
+                        sent = i,
+                        of = total,
+                        "a long message was cut short; the rest was not sent"
+                    );
+                    return Ok(first);
+                }
+            };
             lock(&self.state).record_sent(target, sent.message_id);
             first.get_or_insert(sent);
         }
@@ -415,6 +433,36 @@ mod tests {
         assert_eq!(sent[1]["message_thread_id"], 12);
         assert!(sent[1].get("reply_parameters").is_none());
         assert!(sent.iter().all(|b| b.get("parse_mode").is_none()));
+    }
+
+    #[tokio::test]
+    async fn a_send_cut_short_after_its_first_piece_still_succeeds() {
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path(route("sendMessage")))
+            .respond_with(ok(sent_message(101, group_chat(GROUP, true))))
+            .up_to_n_times(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path(route("sendMessage")))
+            .respond_with(refused(429, "Too Many Requests: retry after 5"))
+            .mount(&server)
+            .await;
+        let mut actions = actions(&server).await;
+        let text = ["a", "b", "c"].map(|c| c.repeat(4000)).join("\n");
+        let outcome = actions
+            .perform(OutboundAction::SendMessage {
+                room: format!("{GROUP}:12").into(),
+                text,
+                reply_to: None,
+            })
+            .await
+            .unwrap();
+        assert_eq!(outcome.message.as_ref().map(|m| m.as_str()), Some("101"));
+        let sent = bodies(&server, "sendMessage").await;
+        assert_eq!(sent.len(), 2);
+        assert_eq!(sent[1]["text"], "b".repeat(4000));
     }
 
     #[tokio::test]
@@ -590,6 +638,26 @@ mod tests {
                     "reaction": [{ "type": "emoji", "emoji": "👀" }] }),
                 json!({ "chat_id": GROUP, "message_id": 40, "reaction": [] }),
             ]
+        );
+    }
+
+    #[test]
+    fn reactions_past_the_cap_forget_the_oldest() {
+        let mut mine = Mine::default();
+        let count = i32::try_from(REACTIONS).unwrap();
+        for message in 1..=count {
+            mine.set((GROUP, message), "👀");
+        }
+        mine.set((GROUP, 1), "👍");
+        assert_eq!(mine.order.len(), REACTIONS);
+        mine.set((GROUP, count + 1), "👀");
+        assert_eq!(mine.get((GROUP, 1)), None);
+        assert_eq!(mine.get((GROUP, 2)), Some("👀"));
+        mine.clear((GROUP, 2));
+        assert_eq!(mine.get((GROUP, 2)), None);
+        assert_eq!(
+            (mine.set.len(), mine.order.len()),
+            (REACTIONS - 1, REACTIONS - 1)
         );
     }
 

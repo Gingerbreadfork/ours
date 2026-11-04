@@ -6,6 +6,7 @@
 //! its administrators plus everyone seen speaking, reacting or voting, and
 //! it grows as people are seen.
 
+use crate::disk::Saver;
 use crate::map::{self, Target, UserRecord};
 use crate::poll;
 use crate::reaction;
@@ -16,6 +17,7 @@ use frankenstein::types::{
 };
 use frankenstein::updates::UpdateContent;
 use ours_types::{InboundEvent, Instant, Member, PlatformRole, PlatformRoomId};
+use serde::{Deserialize, Serialize};
 use std::collections::{BTreeMap, BTreeSet, HashMap, VecDeque};
 
 /// Topics remembered per group. A forgotten topic is synced again when it
@@ -141,7 +143,29 @@ struct PollRecord {
     target: Target,
     message: i32,
     options: usize,
-    votes: HashMap<u64, BTreeSet<u32>>,
+    votes: BTreeMap<u64, BTreeSet<u32>>,
+    ended: bool,
+}
+
+impl PollRecord {
+    /// An ended poll takes no more votes, so who voted for what is let go.
+    fn end(&mut self) {
+        self.ended = true;
+        self.votes.clear();
+    }
+}
+
+/// A poll record as it is kept on disk.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SavedPoll {
+    id: String,
+    chat: i64,
+    topic: Option<i32>,
+    message: i32,
+    options: usize,
+    #[serde(default)]
+    votes: BTreeMap<u64, BTreeSet<u32>>,
+    #[serde(default)]
     ended: bool,
 }
 
@@ -157,6 +181,7 @@ pub struct State {
     placed: Placed,
     polls: HashMap<String, PollRecord>,
     poll_order: VecDeque<String>,
+    saver: Option<Saver>,
 }
 
 impl State {
@@ -175,6 +200,7 @@ impl State {
             placed: Placed::default(),
             polls: HashMap::new(),
             poll_order: VecDeque::new(),
+            saver: None,
         }
     }
 
@@ -292,8 +318,10 @@ impl State {
     }
 
     /// Add a user to a group's roster and announce them in the group and
-    /// its topics. Nothing when they are already on it.
-    fn join(&mut self, chat: i64, user: u64, now: Instant) -> Vec<InboundEvent> {
+    /// its topics. Nothing when they are already on it. Only someone who
+    /// just joined is reported as a join; a member seen for the first time
+    /// since a restart is an update, so the engine does not welcome them.
+    fn join(&mut self, chat: i64, user: u64, now: Instant, arrival: Arrival) -> Vec<InboundEvent> {
         let added = self
             .chats
             .get_mut(&chat)
@@ -305,10 +333,16 @@ impl State {
         record
             .rooms(chat)
             .into_iter()
-            .map(|room| InboundEvent::MemberJoined {
-                room,
-                member: member.clone(),
-                at: now,
+            .map(|room| match arrival {
+                Arrival::Joined => InboundEvent::MemberJoined {
+                    room,
+                    member: member.clone(),
+                    at: now,
+                },
+                Arrival::Seen => InboundEvent::MemberUpdated {
+                    room,
+                    member: member.clone(),
+                },
             })
             .collect()
     }
@@ -454,7 +488,7 @@ impl State {
             .copied()
             .collect();
         for id in &newcomers {
-            events.extend(self.join(chat, *id, now));
+            events.extend(self.join(chat, *id, now, Arrival::Seen));
         }
         if let Some(record) = self.chats.get(&chat) {
             for id in changed.iter().filter(|id| !newcomers.contains(id)) {
@@ -547,7 +581,7 @@ impl State {
             let me = self.me.id;
             for user in users.iter().filter(|u| u.id != me) {
                 events.extend(self.see_user(user));
-                events.extend(self.join(chat, user.id, now));
+                events.extend(self.join(chat, user.id, now, Arrival::Joined));
             }
             return events;
         }
@@ -582,7 +616,7 @@ impl State {
             return events;
         }
         events.extend(self.see_user(from));
-        events.extend(self.join(chat, from.id, now));
+        events.extend(self.join(chat, from.id, now, Arrival::Seen));
         if let Some(topic) = topic {
             events.extend(self.see_topic(chat, topic, name.as_deref()));
             self.placed.insert(chat, m.message_id, topic);
@@ -673,7 +707,7 @@ impl State {
             }
             ChatType::Group | ChatType::Supergroup if self.chats.contains_key(&chat) => {
                 events.extend(self.see_user(user));
-                events.extend(self.join(chat, user.id, now));
+                events.extend(self.join(chat, user.id, now, Arrival::Seen));
                 match self.placed.get(chat, r.message_id) {
                     Some(topic) => {
                         events.extend(self.see_topic(chat, topic, None));
@@ -721,7 +755,12 @@ impl State {
         }
         let role = map::platform_role(&u.new_chat_member);
         events.extend(self.set_role(chat, user.id, role));
-        events.extend(self.join(chat, user.id, now));
+        let arrival = if map::is_present(&u.old_chat_member) {
+            Arrival::Seen
+        } else {
+            Arrival::Joined
+        };
+        events.extend(self.join(chat, user.id, now, arrival));
         events
     }
 
@@ -741,18 +780,20 @@ impl State {
             return None;
         }
         let Some(record) = self.polls.get_mut(&poll.id) else {
-            tracing::debug!(poll = %poll.id, "a poll this run did not create closed");
+            tracing::debug!(poll = %poll.id, "a poll closed that the agent has no record of");
             return None;
         };
         if record.ended {
             return None;
         }
-        record.ended = true;
-        Some(InboundEvent::PollEnded {
+        record.end();
+        let ended = InboundEvent::PollEnded {
             room: record.target.room_id(),
             message: map::message_id(record.message),
             counts: poll::counts(poll),
-        })
+        };
+        self.polls_changed();
+        Some(ended)
     }
 
     fn on_answer(&mut self, answer: &PollAnswer, now: Instant) -> Vec<InboundEvent> {
@@ -760,7 +801,7 @@ impl State {
             return Vec::new();
         };
         let Some(record) = self.polls.get(&answer.poll_id) else {
-            tracing::debug!(poll = %answer.poll_id, "a vote on a poll this run did not create");
+            tracing::debug!(poll = %answer.poll_id, "a vote on a poll the agent has no record of");
             return Vec::new();
         };
         if user.id == self.me.id {
@@ -768,7 +809,7 @@ impl State {
         }
         let (target, message, options) = (record.target, record.message, record.options);
         let mut events = self.see_user(user);
-        events.extend(self.join(target.chat, user.id, now));
+        events.extend(self.join(target.chat, user.id, now, Arrival::Seen));
         if let Some(topic) = target.topic {
             events.extend(self.see_topic(target.chat, topic, None));
         }
@@ -782,8 +823,12 @@ impl State {
             record.votes.insert(user.id, after.clone())
         }
         .unwrap_or_default();
+        let changes = poll::changes(&before, &after);
+        if !changes.is_empty() {
+            self.polls_changed();
+        }
         events.extend(
-            poll::changes(&before, &after)
+            changes
                 .into_iter()
                 .map(|(option, added)| InboundEvent::PollVote {
                     room: target.room_id(),
@@ -823,9 +868,15 @@ impl State {
             target,
             message,
             options,
-            votes: HashMap::new(),
+            votes: BTreeMap::new(),
             ended: false,
         };
+        self.keep_poll(id, record);
+        self.polls_changed();
+    }
+
+    /// Remember a poll, forgetting the oldest past `POLLS`.
+    fn keep_poll(&mut self, id: String, record: PollRecord) {
         if self.polls.insert(id.clone(), record).is_none() {
             self.poll_order.push_back(id);
             if self.poll_order.len() > POLLS
@@ -833,6 +884,53 @@ impl State {
             {
                 self.polls.remove(&oldest);
             }
+        }
+    }
+
+    /// Take back the poll records saved before a restart, oldest first.
+    pub fn restore_polls(&mut self, saved: Vec<SavedPoll>) {
+        for poll in saved {
+            let record = PollRecord {
+                target: Target {
+                    chat: poll.chat,
+                    topic: poll.topic,
+                },
+                message: poll.message,
+                options: poll.options,
+                votes: poll.votes,
+                ended: poll.ended,
+            };
+            self.keep_poll(poll.id, record);
+        }
+    }
+
+    /// Hand every later change to the poll records to `saver`.
+    pub fn save_polls(&mut self, saver: Saver) {
+        self.saver = Some(saver);
+    }
+
+    /// The poll records as they are saved, oldest first.
+    pub fn saved_polls(&self) -> Vec<SavedPoll> {
+        self.poll_order
+            .iter()
+            .filter_map(|id| {
+                let record = self.polls.get(id)?;
+                Some(SavedPoll {
+                    id: id.clone(),
+                    chat: record.target.chat,
+                    topic: record.target.topic,
+                    message: record.message,
+                    options: record.options,
+                    votes: record.votes.clone(),
+                    ended: record.ended,
+                })
+            })
+            .collect()
+    }
+
+    fn polls_changed(&self) {
+        if let Some(saver) = &self.saver {
+            saver.save(self.saved_polls());
         }
     }
 
@@ -847,8 +945,10 @@ impl State {
         let (room, message) = match self.polls.get_mut(&poll.id) {
             Some(record) if record.ended => return None,
             Some(record) => {
-                record.ended = true;
-                (record.target.room_id(), record.message)
+                record.end();
+                let place = (record.target.room_id(), record.message);
+                self.polls_changed();
+                place
             }
             None => (target.room_id(), message),
         };
@@ -881,6 +981,15 @@ fn user_from_chat(id: u64, chat: &Chat) -> UserRecord {
         username,
         bot: false,
     }
+}
+
+/// How someone came to be on a group's roster.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Arrival {
+    /// They joined the group.
+    Joined,
+    /// They were already in it and are seen for the first time.
+    Seen,
 }
 
 #[cfg(test)]
@@ -996,7 +1105,7 @@ mod tests {
         let mut state = synced(false);
         let events = handle(&mut state, said(1, ALEX, "Alex", "dinner thursday?"));
         let [
-            InboundEvent::MemberJoined { room, member, .. },
+            InboundEvent::MemberUpdated { room, member },
             InboundEvent::Message(message),
         ] = events.as_slice()
         else {
@@ -1076,7 +1185,7 @@ mod tests {
         let joined: Vec<_> = newcomer
             .iter()
             .filter_map(|e| match e {
-                InboundEvent::MemberJoined { room, .. } => Some(room.as_str().to_owned()),
+                InboundEvent::MemberUpdated { room, .. } => Some(room.as_str().to_owned()),
                 _ => None,
             })
             .collect();
@@ -1317,6 +1426,18 @@ mod tests {
             [InboundEvent::MemberJoined { member, .. }] if member.platform_role == R::Admin));
     }
 
+    #[test]
+    fn a_member_seen_first_in_a_role_change_has_not_just_joined() {
+        let mut state = synced(false);
+        let promoted = handle(
+            &mut state,
+            member_update(plain_member(PRIYA), administrator(PRIYA)),
+        );
+        assert!(matches!(promoted.as_slice(),
+            [InboundEvent::MemberUpdated { member, .. }]
+                if member.id.as_str() == "14" && member.platform_role == R::Admin));
+    }
+
     fn my_update(old: Value, new: Value) -> Value {
         json!({ "my_chat_member": { "chat": group_chat(GROUP, false), "from": user_json(SAM, "Sam"),
             "date": 1_793_613_600, "old_chat_member": old, "new_chat_member": new } })
@@ -1399,9 +1520,9 @@ mod tests {
         assert_eq!(
             seen,
             [
-                ("joined", "14".to_owned(), R::Admin),
                 ("updated", "12".to_owned(), R::Regular),
                 ("updated", "13".to_owned(), R::Admin),
+                ("updated", "14".to_owned(), R::Admin),
             ]
         );
         assert!(
@@ -1574,7 +1695,7 @@ mod tests {
         assert!(matches!(
             events.as_slice(),
             [
-                InboundEvent::MemberJoined { .. },
+                InboundEvent::MemberUpdated { .. },
                 InboundEvent::ReactionAdded { .. }
             ]
         ));
@@ -1586,8 +1707,29 @@ mod tests {
     }
 
     fn answer(user: u64, options: &[u8]) -> Value {
-        json!({ "poll_answer": { "poll_id": "P1", "user": user_json(user, "Voter"),
+        vote("P1", user, options)
+    }
+
+    fn vote(poll: &str, user: u64, options: &[u8]) -> Value {
+        json!({ "poll_answer": { "poll_id": poll, "user": user_json(user, "Voter"),
             "option_ids": options, "option_persistent_ids": [] } })
+    }
+
+    fn closed(poll: &str) -> Value {
+        json!({ "poll": { "id": poll, "question": "when?", "total_voter_count": 3,
+            "is_closed": true, "is_anonymous": false, "type": "regular",
+            "options": [{ "text": "Thu", "voter_count": 2 }, { "text": "Fri", "voter_count": 1 }] } })
+    }
+
+    /// Each vote event as `(option, added)`.
+    fn votes(events: &[InboundEvent]) -> Vec<(u32, bool)> {
+        events
+            .iter()
+            .filter_map(|e| match e {
+                InboundEvent::PollVote { option, added, .. } => Some((*option, *added)),
+                _ => None,
+            })
+            .collect()
     }
 
     #[test]
@@ -1618,7 +1760,7 @@ mod tests {
         };
         assert!(matches!(
             first.first(),
-            Some(InboundEvent::MemberJoined { .. })
+            Some(InboundEvent::MemberUpdated { .. })
         ));
         assert_eq!(votes(&first), [(0, true)]);
         assert_eq!(
@@ -1665,5 +1807,99 @@ mod tests {
             }]
         );
         assert!(handle(&mut state, poll(true)).is_empty());
+    }
+
+    #[test]
+    fn votes_and_closes_on_a_poll_from_before_a_restart_still_count() {
+        let mut before = synced(false);
+        before.record_poll("P1".to_owned(), Target::chat(GROUP), 300, 2);
+        handle(&mut before, answer(ALEX, &[0]));
+
+        let mut after = synced(false);
+        after.restore_polls(before.saved_polls());
+        assert_eq!(
+            votes(&handle(&mut after, answer(ALEX, &[1]))),
+            [(0, false), (1, true)]
+        );
+        assert_eq!(
+            handle(&mut after, closed("P1")),
+            [InboundEvent::PollEnded {
+                room: GROUP.to_string().into(),
+                message: "300".into(),
+                counts: vec![2, 1]
+            }]
+        );
+
+        let mut again = synced(false);
+        again.restore_polls(after.saved_polls());
+        assert!(handle(&mut again, closed("P1")).is_empty());
+    }
+
+    #[test]
+    fn every_change_to_a_poll_is_saved() {
+        let (saver, mut changes) = crate::disk::watched();
+        let mut state = synced(false);
+        state.save_polls(saver);
+        let mut saved = || {
+            changes
+                .has_changed()
+                .unwrap()
+                .then(|| crate::disk::decode(&changes.borrow_and_update()))
+        };
+        state.record_poll("P1".to_owned(), Target::chat(GROUP), 300, 2);
+        assert_eq!(saved(), Some(state.saved_polls()));
+        handle(&mut state, answer(ALEX, &[1]));
+        let after_vote = saved().unwrap();
+        assert_eq!(
+            after_vote[0].votes,
+            BTreeMap::from([(ALEX, BTreeSet::from([1]))])
+        );
+        handle(&mut state, answer(ALEX, &[1]));
+        handle(&mut state, said(1, SAM, "Sam", "hi"));
+        assert_eq!(saved(), None);
+        handle(&mut state, closed("P1"));
+        let after_close = saved().unwrap();
+        assert!(after_close[0].ended && after_close[0].votes.is_empty());
+    }
+
+    #[test]
+    fn polls_past_the_cap_forget_the_oldest() {
+        let mut state = synced(false);
+        for n in 0..=POLLS {
+            let message = i32::try_from(n).unwrap() + 1;
+            state.record_poll(format!("P{n}"), Target::chat(GROUP), message, 2);
+        }
+        assert_eq!((state.polls.len(), state.poll_order.len()), (POLLS, POLLS));
+        assert!(handle(&mut state, vote("P0", ALEX, &[0])).is_empty());
+        assert_eq!(
+            votes(&handle(&mut state, vote("P1", ALEX, &[0]))),
+            [(0, true)]
+        );
+
+        let mut older = synced(false);
+        older.record_poll("P0".to_owned(), Target::chat(GROUP), 1, 2);
+        let mut saved = older.saved_polls();
+        saved.extend(state.saved_polls());
+        let mut restored = synced(false);
+        restored.restore_polls(saved);
+        assert_eq!(restored.polls.len(), POLLS);
+        assert_eq!(restored.poll_order.front().map(String::as_str), Some("P1"));
+        assert!(handle(&mut restored, vote("P0", SAM, &[0])).is_empty());
+    }
+
+    #[test]
+    fn placed_messages_past_the_cap_forget_the_oldest() {
+        let mut placed = Placed::default();
+        let count = i32::try_from(PLACED).unwrap();
+        for message in 1..=count {
+            placed.insert(GROUP, message, 7);
+        }
+        placed.insert(GROUP, 1, 7);
+        assert_eq!(placed.order.len(), PLACED);
+        placed.insert(GROUP, count + 1, 8);
+        assert_eq!(placed.get(GROUP, 1), None);
+        assert_eq!(placed.get(GROUP, 2), Some(7));
+        assert_eq!(placed.get(GROUP, count + 1), Some(8));
+        assert_eq!((placed.topics.len(), placed.order.len()), (PLACED, PLACED));
     }
 }

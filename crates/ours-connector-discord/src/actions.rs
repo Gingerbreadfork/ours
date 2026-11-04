@@ -194,31 +194,9 @@ impl Actions {
         &self,
         channel: Id<ChannelMarker>,
         text: &str,
-        reply: Option<Id<twilight_model::id::marker::MessageMarker>>,
+        reply: Option<Id<MessageMarker>>,
     ) -> Result<Outcome, ActionError> {
-        let mut first = None;
-        for (i, piece) in split_message(text, MESSAGE_LIMIT).iter().enumerate() {
-            let reply = reply.filter(|_| i == 0);
-            let mentions = AllowedMentions {
-                replied_user: reply.is_some(),
-                ..AllowedMentions::default()
-            };
-            let mut create = self
-                .http
-                .create_message(channel)
-                .content(piece)
-                .allowed_mentions(Some(&mentions));
-            if let Some(reply) = reply {
-                create = create.reply(reply).fail_if_not_exists(false);
-            }
-            let sent = create
-                .await
-                .map_err(request)?
-                .model()
-                .await
-                .map_err(request)?;
-            first.get_or_insert(sent.id);
-        }
+        let first = post_pieces(&*self.http, channel, text, reply).await?;
         Ok(Outcome {
             message: first.map(map::message_id),
             events: Vec::new(),
@@ -350,6 +328,79 @@ impl MessagePages for Client {
         };
         response.map_err(request)?.models().await.map_err(request)
     }
+}
+
+/// One call to Discord's create message route.
+trait PostMessage {
+    /// Post `text` in `channel`, as a reply when `reply` is set, and return
+    /// the new message's id.
+    async fn post(
+        &self,
+        channel: Id<ChannelMarker>,
+        text: &str,
+        reply: Option<Id<MessageMarker>>,
+    ) -> Result<Id<MessageMarker>, ActionError>;
+}
+
+impl PostMessage for Client {
+    async fn post(
+        &self,
+        channel: Id<ChannelMarker>,
+        text: &str,
+        reply: Option<Id<MessageMarker>>,
+    ) -> Result<Id<MessageMarker>, ActionError> {
+        let mentions = AllowedMentions {
+            replied_user: reply.is_some(),
+            ..AllowedMentions::default()
+        };
+        let mut create = self
+            .create_message(channel)
+            .content(text)
+            .allowed_mentions(Some(&mentions));
+        if let Some(reply) = reply {
+            create = create.reply(reply).fail_if_not_exists(false);
+        }
+        let sent = create
+            .await
+            .map_err(request)?
+            .model()
+            .await
+            .map_err(request)?;
+        Ok(sent.id)
+    }
+}
+
+/// Post `text` in pieces that fit, the first as the reply, and return the
+/// first piece's id. Once that piece is out the send stands: a later failure
+/// is logged and the rest is dropped.
+async fn post_pieces(
+    poster: &impl PostMessage,
+    channel: Id<ChannelMarker>,
+    text: &str,
+    reply: Option<Id<MessageMarker>>,
+) -> Result<Option<Id<MessageMarker>>, ActionError> {
+    let pieces = split_message(text, MESSAGE_LIMIT);
+    let mut first = None;
+    for (i, piece) in pieces.iter().enumerate() {
+        let reply = reply.filter(|_| i == 0);
+        match poster.post(channel, piece, reply).await {
+            Ok(id) => {
+                first.get_or_insert(id);
+            }
+            Err(error) if first.is_some() => {
+                tracing::warn!(
+                    %channel,
+                    %error,
+                    sent = i,
+                    dropped = pieces.len() - i,
+                    "a long message was cut short"
+                );
+                break;
+            }
+            Err(error) => return Err(error),
+        }
+    }
+    Ok(first)
 }
 
 /// Cap a history request at `MAX_HISTORY`.
@@ -588,6 +639,69 @@ mod tests {
         let ids = fetch(&channel, None, 100).await.unwrap();
         assert_eq!(ids.len(), 1000);
         assert_eq!(channel.calls().len(), 10);
+    }
+
+    /// A channel that takes posts like Discord, failing the call numbered `fail_on_call`.
+    #[derive(Default)]
+    struct FakePoster {
+        /// The length of each piece and the message it replied to.
+        calls: Mutex<Vec<(usize, Option<u64>)>>,
+        fail_on_call: Option<usize>,
+    }
+
+    impl PostMessage for FakePoster {
+        async fn post(
+            &self,
+            _channel: Id<ChannelMarker>,
+            text: &str,
+            reply: Option<Id<MessageMarker>>,
+        ) -> Result<Id<MessageMarker>, ActionError> {
+            let call = {
+                let mut calls = self.calls.lock().unwrap();
+                calls.push((text.chars().count(), reply.map(Id::get)));
+                calls.len()
+            };
+            if self.fail_on_call == Some(call) {
+                return Err(ActionError::Request("503".to_owned()));
+            }
+            Ok(Id::new(100 + call as u64))
+        }
+    }
+
+    async fn post_long(poster: &FakePoster) -> Result<Option<u64>, ActionError> {
+        let text = "a".repeat(MESSAGE_LIMIT * 2 + 10);
+        let first = post_pieces(poster, cid(CHANNEL), &text, Some(Id::new(7))).await?;
+        Ok(first.map(Id::get))
+    }
+
+    #[tokio::test]
+    async fn a_long_send_replies_with_its_first_piece_only() {
+        let poster = FakePoster::default();
+        assert_eq!(post_long(&poster).await.unwrap(), Some(101));
+        assert_eq!(
+            *poster.calls.lock().unwrap(),
+            [(2000, Some(7)), (2000, None), (10, None)]
+        );
+    }
+
+    #[tokio::test]
+    async fn a_long_send_cut_short_still_reports_what_was_delivered() {
+        let poster = FakePoster {
+            fail_on_call: Some(2),
+            ..FakePoster::default()
+        };
+        assert_eq!(post_long(&poster).await.unwrap(), Some(101));
+        assert_eq!(poster.calls.lock().unwrap().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn a_send_whose_first_piece_fails_fails() {
+        let poster = FakePoster {
+            fail_on_call: Some(1),
+            ..FakePoster::default()
+        };
+        assert_eq!(post_long(&poster).await.unwrap_err().to_string(), "503");
+        assert_eq!(poster.calls.lock().unwrap().len(), 1);
     }
 
     #[test]

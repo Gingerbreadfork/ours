@@ -28,6 +28,8 @@ pub enum Step {
     RequestMembers(Id<GuildMarker>),
     /// Read the member list of a private thread over REST.
     FetchThreadMembers(Id<ChannelMarker>),
+    /// Read a whole message over REST after an update that could not be read.
+    FetchMessage(map::PartialUpdate),
 }
 
 /// DM channels that have already been announced to the engine.
@@ -41,6 +43,14 @@ impl DmRooms {
             .lock()
             .unwrap_or_else(|e| e.into_inner())
             .insert(channel)
+    }
+
+    /// Whether a DM channel has been announced.
+    pub fn contains(&self, channel: Id<ChannelMarker>) -> bool {
+        self.0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .contains(&channel)
     }
 }
 
@@ -99,6 +109,8 @@ struct GuildState {
     threads: BTreeMap<Id<ChannelMarker>, ThreadRecord>,
     members: HashMap<Id<UserMarker>, MemberRecord>,
     awaiting_chunks: bool,
+    /// Indexes of the member chunks received so far, which may arrive out of order.
+    chunks_seen: HashSet<u32>,
 }
 
 /// How a member relates to one room.
@@ -210,6 +222,16 @@ impl GuildState {
         channels.chain(threads).collect()
     }
 
+    /// The forum a thread was posted in, and the forum's name.
+    fn forum_of(&self, thread: Id<ChannelMarker>) -> Option<(Id<ChannelMarker>, Option<&str>)> {
+        let parent = self.threads.get(&thread)?.parent;
+        let forum = self
+            .channels
+            .get(&parent)
+            .filter(|c| map::is_forum(c.kind))?;
+        Some((parent, forum.name.as_deref()))
+    }
+
     fn threads_of(&self, channel: Id<ChannelMarker>) -> Vec<Id<ChannelMarker>> {
         self.threads
             .iter()
@@ -253,6 +275,8 @@ pub struct Cache {
     guilds: HashMap<Id<GuildMarker>, GuildState>,
     dms: DmRooms,
     ended_polls: EndedPolls,
+    /// Forums whose id has been logged for the host.
+    forums_logged: HashSet<Id<ChannelMarker>>,
 }
 
 impl Cache {
@@ -268,6 +292,7 @@ impl Cache {
             guilds: HashMap::new(),
             dms,
             ended_polls: EndedPolls::default(),
+            forums_logged: HashSet::new(),
         }
     }
 
@@ -324,7 +349,9 @@ impl Cache {
                 self.on_member_remove(remove.guild_id, remove.user.id, now)
             }
             Event::MemberUpdate(update) => self.on_member_update(update, now),
-            Event::MessageCreate(create) => self.on_message(&create.message, false, now),
+            Event::MessageCreate(create) => {
+                self.on_message(&create.message, create.channel_type, false, now)
+            }
             Event::MessageUpdate(update) => self.on_message_update(&update.0, now),
             Event::MessageDelete(delete) => self.on_message_delete(delete),
             Event::MessageDeleteBulk(bulk) => {
@@ -361,12 +388,32 @@ impl Cache {
         }
     }
 
+    /// A message update that could not be read. It is fetched whole only
+    /// when it belongs to a served guild or a known DM.
+    pub fn on_partial_update(&self, update: map::PartialUpdate) -> Vec<Step> {
+        let known = match update.guild {
+            Some(guild) => self.guilds.contains_key(&guild),
+            None => self.guild_of(update.channel).is_some() || self.dms.contains(update.channel),
+        };
+        if known {
+            vec![Step::FetchMessage(update)]
+        } else {
+            Vec::new()
+        }
+    }
+
     /// A message fetched after a partial update, handled as the edit it is.
-    /// REST responses carry no guild id, so it is filled in from the channel.
+    /// REST responses carry no guild id, so a missing one comes from the
+    /// cached channel. A channel in no served guild counts as a DM only when
+    /// it is already a known DM.
     pub fn handle_fetched_edit(&mut self, message: &TwMessage, now: Instant) -> Vec<Step> {
         let mut message = message.clone();
         if message.guild_id.is_none() {
             message.guild_id = self.guild_of(message.channel_id);
+        }
+        if message.guild_id.is_none() && !self.dms.contains(message.channel_id) {
+            tracing::debug!(channel = %message.channel_id, "fetched edit in no served guild or known DM; skipped");
+            return Vec::new();
         }
         self.on_message_update(&message, now)
     }
@@ -405,6 +452,20 @@ impl Cache {
 
     fn in_scope(&self, guild: Option<Id<GuildMarker>>) -> bool {
         guild.is_none_or(|g| self.guilds.contains_key(&g))
+    }
+
+    /// Whether a message is from a served guild or from a DM. A message with
+    /// no guild id is not taken for a DM when its member data, its channel
+    /// type or the cached channel places it in a guild.
+    fn message_in_scope(&self, message: &TwMessage, channel_type: Option<ChannelType>) -> bool {
+        match message.guild_id {
+            Some(guild) => self.guilds.contains_key(&guild),
+            None => {
+                message.member.is_none()
+                    && channel_type.is_none_or(|kind| kind == ChannelType::Private)
+                    && self.guild_of(message.channel_id).is_none()
+            }
+        }
     }
 
     fn on_ready(&mut self, ready: &Ready) -> Vec<Step> {
@@ -463,6 +524,7 @@ impl Cache {
             threads,
             members,
             awaiting_chunks: !complete,
+            chunks_seen: HashSet::new(),
         };
         tracing::info!(guild = %guild.id, name = %state.name, complete, "guild available");
         self.guilds.insert(guild.id, state);
@@ -485,7 +547,8 @@ impl Cache {
                 .members
                 .insert(member.user.id, MemberRecord::from_member(member));
         }
-        if chunk.chunk_index + 1 < chunk.chunk_count {
+        guild.chunks_seen.insert(chunk.chunk_index);
+        if guild.chunks_seen.len() < chunk.chunk_count as usize {
             return Vec::new();
         }
         guild.awaiting_chunks = false;
@@ -493,7 +556,7 @@ impl Cache {
     }
 
     /// A RoomSync for every room the agent can see in the guild.
-    fn sync_guild(&self, guild_id: Id<GuildMarker>) -> Vec<Step> {
+    fn sync_guild(&mut self, guild_id: Id<GuildMarker>) -> Vec<Step> {
         let Some(guild) = self.guilds.get(&guild_id) else {
             return Vec::new();
         };
@@ -501,7 +564,9 @@ impl Cache {
         self.sync_rooms(guild_id, &rooms)
     }
 
-    fn sync_rooms(&self, guild_id: Id<GuildMarker>, rooms: &[Id<ChannelMarker>]) -> Vec<Step> {
+    /// A RoomSync for each of `rooms` the agent can see. A forum's id is
+    /// never a room, so the first thread synced from one logs it.
+    fn sync_rooms(&mut self, guild_id: Id<GuildMarker>, rooms: &[Id<ChannelMarker>]) -> Vec<Step> {
         let Some(guild) = self.guilds.get(&guild_id) else {
             return Vec::new();
         };
@@ -523,6 +588,16 @@ impl Cache {
                 .is_some_and(|m| guild.presence(guild_id, m, *room) == Presence::In);
             if visible && let Some(sync) = guild.room_sync(guild_id, *room) {
                 steps.push(Step::Emit(sync));
+                if let Some((forum, name)) = guild.forum_of(*room)
+                    && self.forums_logged.insert(forum)
+                {
+                    tracing::info!(
+                        guild = %guild_id,
+                        %forum,
+                        name = name.unwrap_or(""),
+                        "forum threads found; list the forum id under a group's rooms to include them"
+                    );
+                }
             }
         }
         steps
@@ -595,14 +670,18 @@ impl Cache {
     }
 
     /// The bot was removed from a guild, or the guild was deleted. A
-    /// temporary outage keeps its rooms, so it ends nothing.
+    /// temporary outage ends nothing and keeps the guild cached, so a
+    /// removal during it still ends its rooms.
     fn on_guild_delete(&mut self, delete: &GuildDelete, now: Instant) -> Vec<Step> {
-        let steps = match self.guilds.get(&delete.id) {
-            Some(guild) if delete.unavailable != Some(true) => {
-                self.bot_left(delete.id, &guild.room_ids(), now)
-            }
-            _ => Vec::new(),
-        };
+        if delete.unavailable == Some(true) {
+            return Vec::new();
+        }
+        let rooms = self
+            .guilds
+            .get(&delete.id)
+            .map(GuildState::room_ids)
+            .unwrap_or_default();
+        let steps = self.bot_left(delete.id, &rooms, now);
         self.guilds.remove(&delete.id);
         steps
     }
@@ -829,7 +908,7 @@ impl Cache {
     /// because the agent's polls are its own messages.
     fn on_message_update(&mut self, message: &TwMessage, now: Instant) -> Vec<Step> {
         let mut steps = self.on_poll_results(message);
-        steps.extend(self.on_message(message, true, now));
+        steps.extend(self.on_message(message, None, true, now));
         steps
     }
 
@@ -838,7 +917,7 @@ impl Cache {
         let Some(counts) = message.poll.as_ref().and_then(poll::final_counts) else {
             return Vec::new();
         };
-        if !self.in_scope(message.guild_id) || !self.ended_polls.insert(message.id) {
+        if !self.message_in_scope(message, None) || !self.ended_polls.insert(message.id) {
             return Vec::new();
         }
         vec![Step::Emit(InboundEvent::PollEnded {
@@ -880,10 +959,18 @@ impl Cache {
         })]
     }
 
-    fn on_message(&mut self, message: &TwMessage, edit: bool, now: Instant) -> Vec<Step> {
+    /// A new or edited message. `channel_type` is what a MESSAGE_CREATE
+    /// reports, which tells a DM from a guild channel.
+    fn on_message(
+        &mut self,
+        message: &TwMessage,
+        channel_type: Option<ChannelType>,
+        edit: bool,
+        now: Instant,
+    ) -> Vec<Step> {
         if Some(message.author.id) == self.me
             || !map::is_user_message(message.kind)
-            || !self.in_scope(message.guild_id)
+            || !self.message_in_scope(message, channel_type)
             || (edit && message.edited_timestamp.is_none())
         {
             return Vec::new();
@@ -1144,6 +1231,19 @@ mod tests {
     }
 
     #[test]
+    fn chunks_out_of_order_sync_once_every_one_has_arrived() {
+        let mut cache = started();
+        cache.handle(&guild_create(vec![tw_bot_member(ME, "q", &[203])], 7), at());
+        let last = cache.handle(&chunk(everyone()[4..].to_vec(), 1, 2), at());
+        assert!(last.is_empty());
+        let again = cache.handle(&chunk(everyone()[4..].to_vec(), 1, 2), at());
+        assert!(again.is_empty());
+        let rooms = syncs(cache.handle(&chunk(everyone()[..4].to_vec(), 0, 2), at()));
+        assert_eq!(rooms.len(), 2);
+        assert_eq!(rooms[0].1.len(), 7);
+    }
+
+    #[test]
     fn text_channels_sync_with_the_roles_discord_reports() {
         let mut cache = started();
         cache.handle(&guild_create(vec![tw_bot_member(ME, "q", &[203])], 7), at());
@@ -1381,6 +1481,133 @@ mod tests {
         assert!(
             matches!(out.as_slice(), [InboundEvent::MessageEdited(m)] if m.room.as_str() == "300")
         );
+    }
+
+    /// A message as the REST API returns it: no guild id, edited.
+    fn fetched(id: u64, channel: u64) -> TwMessage {
+        let mut message = tw_message(id, channel, None, REGULAR, "Q, book it for six", &[]);
+        message.edited_timestamp =
+            Some(twilight_model::util::Timestamp::from_micros(1_788_343_300_000_000).unwrap());
+        message
+    }
+
+    #[test]
+    fn a_fetched_edit_from_a_guild_outside_the_allowlist_is_not_a_dm() {
+        let allowed = Some([gid(999)].into_iter().collect());
+        let dms = DmRooms::default();
+        let mut cache = Cache::new("Q".to_owned(), allowed, dms.clone());
+        cache.handle(&ready(), at());
+        assert!(cache.handle(&guild_create(everyone(), 7), at()).is_empty());
+
+        assert!(
+            cache
+                .handle_fetched_edit(&fetched(6, GENERAL), at())
+                .is_empty()
+        );
+        assert!(!dms.contains(cid(GENERAL)));
+    }
+
+    #[test]
+    fn a_fetched_edit_in_a_channel_no_served_guild_holds_is_dropped() {
+        let mut cache = synced();
+        assert!(cache.handle_fetched_edit(&fetched(6, 777), at()).is_empty());
+        let mut poll = poll_message(ME, 2, Some((true, &[(1, 1)])));
+        poll.guild_id = None;
+        poll.channel_id = cid(777);
+        assert!(cache.handle_fetched_edit(&poll, at()).is_empty());
+    }
+
+    #[test]
+    fn a_fetched_edit_in_a_known_dm_stays_in_the_dm() {
+        let mut cache = started();
+        let create = Event::MessageCreate(Box::new(MessageCreate {
+            channel_type: None,
+            message: tw_message(8, 900, None, REGULAR, "Q, hi", &[]),
+        }));
+        cache.handle(&create, at());
+        let out = events(cache.handle_fetched_edit(&fetched(8, 900), at()));
+        assert!(
+            matches!(out.as_slice(), [InboundEvent::MessageEdited(m)] if m.room.as_str() == "900")
+        );
+    }
+
+    #[test]
+    fn partial_updates_are_fetched_only_for_served_guilds_and_known_dms() {
+        let update = |guild: Option<u64>, channel: u64| map::PartialUpdate {
+            guild: guild.map(gid),
+            channel: cid(channel),
+            message: id(6),
+        };
+        let allowed = Some([gid(999)].into_iter().collect());
+        let mut excluded = Cache::new("Q".to_owned(), allowed, DmRooms::default());
+        excluded.handle(&ready(), at());
+        excluded.handle(&guild_create(everyone(), 7), at());
+        assert!(
+            excluded
+                .on_partial_update(update(Some(GUILD), GENERAL))
+                .is_empty()
+        );
+        assert!(excluded.on_partial_update(update(None, GENERAL)).is_empty());
+
+        let dms = DmRooms::default();
+        dms.insert(cid(900));
+        let mut cache = Cache::new("Q".to_owned(), None, dms);
+        cache.handle(&ready(), at());
+        cache.handle(&guild_create(everyone(), 7), at());
+        for (guild, channel) in [
+            (Some(GUILD), GENERAL),
+            (Some(GUILD), 777),
+            (None, GENERAL),
+            (None, 900),
+        ] {
+            let wanted = update(guild, channel);
+            assert_eq!(
+                cache.on_partial_update(wanted),
+                vec![Step::FetchMessage(wanted)]
+            );
+        }
+        assert!(cache.on_partial_update(update(None, 777)).is_empty());
+    }
+
+    #[test]
+    fn a_message_without_a_guild_id_is_not_a_dm_when_it_is_known_to_be_in_a_guild() {
+        let mut cache = synced();
+        let create = |message: TwMessage, channel_type: Option<ChannelType>| {
+            Event::MessageCreate(Box::new(MessageCreate {
+                channel_type,
+                message,
+            }))
+        };
+        let cached_channel = tw_message(9, GENERAL, None, REGULAR, "hello", &[]);
+        assert!(cache.handle(&create(cached_channel, None), at()).is_empty());
+
+        let typed = tw_message(10, 777, None, REGULAR, "hello", &[]);
+        let guild_text = Some(ChannelType::GuildText);
+        assert!(cache.handle(&create(typed, guild_text), at()).is_empty());
+
+        let mut value = message_json(
+            11,
+            778,
+            None,
+            user_json(REGULAR, "regular", false),
+            "hello",
+            vec![],
+            None,
+            vec![],
+        );
+        value["member"] = json!({
+            "roles": [], "joined_at": null, "deaf": false, "mute": false, "flags": 0,
+            "nick": null, "communication_disabled_until": null
+        });
+        let with_member = serde_json::from_value(value).unwrap();
+        assert!(cache.handle(&create(with_member, None), at()).is_empty());
+
+        let dm = tw_message(12, 900, None, REGULAR, "hello", &[]);
+        let out = events(cache.handle(&create(dm, Some(ChannelType::Private)), at()));
+        assert!(matches!(
+            out.as_slice(),
+            [InboundEvent::RoomSync { .. }, InboundEvent::Message(_)]
+        ));
     }
 
     #[test]
@@ -1650,6 +1877,37 @@ mod tests {
         assert!(cache.handle(&guild_delete(Some(true)), at()).is_empty());
         let back = syncs(cache.handle(&guild_create(everyone(), 7), at()));
         assert_eq!(back.len(), 2);
+    }
+
+    #[test]
+    fn a_removal_during_an_outage_still_ends_every_room() {
+        let mut cache = synced();
+        cache.handle(&thread_create(400, 11, GENERAL), at());
+        assert!(cache.handle(&guild_delete(Some(true)), at()).is_empty());
+        let left = bot_departures(cache.handle(&guild_delete(None), at()));
+        assert_eq!(left, ["300", "301", "400"]);
+    }
+
+    #[test]
+    fn forum_threads_sync_under_the_forum_which_is_not_a_room() {
+        let mut cache = synced();
+        let forum = Event::ChannelCreate(Box::new(
+            serde_json::from_value(
+                serde_json::to_value(tw_channel(305, 15, "ideas", GUILD, json!([]))).unwrap(),
+            )
+            .unwrap(),
+        ));
+        assert!(syncs(cache.handle(&forum, at())).is_empty());
+
+        let rooms = syncs(cache.handle(&thread_create(410, 11, 305), at()));
+        let [(room, _)] = rooms.as_slice() else {
+            panic!("{rooms:?}")
+        };
+        assert_eq!(room.kind, RoomKind::Thread);
+        assert_eq!(room.parent.as_ref().map(|p| p.as_str()), Some("305"));
+
+        cache.handle(&thread_create(411, 11, 305), at());
+        assert_eq!(cache.forums_logged, [cid(305)].into_iter().collect());
     }
 
     #[test]

@@ -162,15 +162,9 @@ pub fn is_text_channel(kind: ChannelType) -> bool {
     )
 }
 
-/// Whether a channel type can hold threads that should be tracked.
-pub fn can_parent_threads(kind: ChannelType) -> bool {
-    matches!(
-        kind,
-        ChannelType::GuildText
-            | ChannelType::GuildAnnouncement
-            | ChannelType::GuildForum
-            | ChannelType::GuildMedia
-    )
+/// Whether a channel holds only threads, so its id is never a room of its own.
+pub fn is_forum(kind: ChannelType) -> bool {
+    matches!(kind, ChannelType::GuildForum | ChannelType::GuildMedia)
 }
 
 /// `Some(true)` for a private thread, `Some(false)` for a public one, `None` otherwise.
@@ -434,10 +428,19 @@ pub fn parse_emoji(value: &str) -> EmojiRef {
     EmojiRef::Unicode(value.trim().to_owned())
 }
 
-/// The channel and message ids of a raw gateway MESSAGE_UPDATE that carries
-/// new content or a poll but could not be read as a full message. Updates
-/// with neither, such as link previews, give `None`.
-pub fn partial_update_target(raw: &str) -> Option<(Id<ChannelMarker>, Id<MessageMarker>)> {
+/// A message update that could not be read as a full message.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct PartialUpdate {
+    /// The guild the update names, when it names one.
+    pub guild: Option<Id<GuildMarker>>,
+    pub channel: Id<ChannelMarker>,
+    pub message: Id<MessageMarker>,
+}
+
+/// Where a raw gateway MESSAGE_UPDATE belongs, when it carries new content
+/// or a poll but could not be read as a full message. Updates with neither,
+/// such as link previews, give `None`.
+pub fn partial_update_target(raw: &str) -> Option<PartialUpdate> {
     let value: serde_json::Value = serde_json::from_str(raw).ok()?;
     if value.get("t")?.as_str()? != "MESSAGE_UPDATE" {
         return None;
@@ -446,7 +449,21 @@ pub fn partial_update_target(raw: &str) -> Option<(Id<ChannelMarker>, Id<Message
     data.get("content").or_else(|| data.get("poll"))?;
     let channel = data.get("channel_id")?.as_str()?;
     let id = data.get("id")?.as_str()?;
-    Some((parse_id(channel).ok()?, parse_id(id).ok()?))
+    let guild = data
+        .get("guild_id")
+        .and_then(serde_json::Value::as_str)
+        .and_then(|g| parse_id(g).ok());
+    Some(PartialUpdate {
+        guild,
+        channel: parse_id(channel).ok()?,
+        message: parse_id(id).ok()?,
+    })
+}
+
+/// The event name of a raw gateway payload, such as `MESSAGE_UPDATE`.
+pub fn event_name(raw: &str) -> Option<String> {
+    let value: serde_json::Value = serde_json::from_str(raw).ok()?;
+    value.get("t")?.as_str().map(str::to_owned)
 }
 
 /// A sentence for the host about why the gateway closed for good.
@@ -917,13 +934,15 @@ mod tests {
         assert!(parse_id::<ChannelMarker>("general").is_err());
     }
 
+    /// The guild, channel and message of a partial update, as plain numbers.
+    fn target(raw: &str) -> Option<(Option<u64>, u64, u64)> {
+        partial_update_target(raw).map(|u| (u.guild.map(Id::get), u.channel.get(), u.message.get()))
+    }
+
     #[test]
     fn only_edits_with_content_are_fetched() {
         let with_content = r#"{"t":"MESSAGE_UPDATE","s":3,"op":0,"d":{"id":"9","channel_id":"8","content":"new"}}"#;
-        assert_eq!(
-            partial_update_target(with_content).map(|(c, m)| (c.get(), m.get())),
-            Some((8, 9))
-        );
+        assert_eq!(target(with_content), Some((None, 8, 9)));
         let preview =
             r#"{"t":"MESSAGE_UPDATE","s":3,"op":0,"d":{"id":"9","channel_id":"8","embeds":[]}}"#;
         assert_eq!(partial_update_target(preview), None);
@@ -936,10 +955,21 @@ mod tests {
     #[test]
     fn partial_updates_with_a_poll_are_fetched() {
         let poll = r#"{"t":"MESSAGE_UPDATE","s":3,"op":0,"d":{"id":"9","channel_id":"8","poll":{"results":{"is_finalized":true,"answer_counts":[]}}}}"#;
-        assert_eq!(
-            partial_update_target(poll).map(|(c, m)| (c.get(), m.get())),
-            Some((8, 9))
-        );
+        assert_eq!(target(poll), Some((None, 8, 9)));
+    }
+
+    #[test]
+    fn a_partial_update_keeps_the_guild_it_names() {
+        let in_guild = r#"{"t":"MESSAGE_UPDATE","s":3,"op":0,"d":{"id":"9","channel_id":"8","guild_id":"7","content":"new"}}"#;
+        assert_eq!(target(in_guild), Some((Some(7), 8, 9)));
+    }
+
+    #[test]
+    fn event_names_come_from_t() {
+        let create = r#"{"t":"GUILD_CREATE","s":1,"op":0,"d":{}}"#;
+        assert_eq!(event_name(create).as_deref(), Some("GUILD_CREATE"));
+        assert_eq!(event_name(r#"{"t":null,"op":10,"d":{}}"#), None);
+        assert_eq!(event_name("not json"), None);
     }
 
     #[test]

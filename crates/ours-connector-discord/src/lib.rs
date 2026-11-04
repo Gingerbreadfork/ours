@@ -25,6 +25,7 @@ use std::collections::HashSet;
 use std::sync::{Arc, OnceLock};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 use tokio::sync::mpsc;
+use tokio::task::JoinHandle;
 use tracing::Instrument;
 use twilight_gateway::error::ReceiveMessageErrorType;
 use twilight_gateway::{
@@ -35,7 +36,7 @@ use twilight_model::channel::Message as TwMessage;
 use twilight_model::gateway::payload::incoming::rate_limited::RateLimitMetadata;
 use twilight_model::gateway::payload::outgoing::RequestGuildMembers;
 use twilight_model::id::Id;
-use twilight_model::id::marker::{ChannelMarker, GuildMarker, MessageMarker, UserMarker};
+use twilight_model::id::marker::{ChannelMarker, GuildMarker, UserMarker};
 
 /// What the gateway session asks Discord for. Server Members and Message
 /// Content are privileged and must be switched on in the developer portal.
@@ -227,23 +228,21 @@ impl Connector for DiscordConnector {
                         (steps, span)
                     }
                     Some(Err(error)) => {
-                        io.on_receive_error(&error);
-                        continue;
+                        let Some(update) = io.on_receive_error(&error) else {
+                            continue;
+                        };
+                        let span = tracing::info_span!("discord_event", kind = "MESSAGE_UPDATE");
+                        let steps = span.in_scope(|| cache.on_partial_update(update));
+                        (steps, span)
                     }
                     None => {
                         let (code, text) = last_close
                             .as_ref()
                             .map_or((None, String::new()), |f| (Some(f.code), f.reason.to_string()));
-                        let reason = map::close_reason(code, &text);
-                        tracing::error!(%reason, "discord gateway is down");
                         worker.abort();
                         let _ = worker.await;
                         drop(io);
-                        let _ = forwarder.await;
-                        let _ = inbound
-                            .send(InboundEvent::Disconnected { platform: Platform::Discord, reason: reason.clone() })
-                            .await;
-                        anyhow::bail!(reason);
+                        return give_up(map::close_reason(code, &text), forwarder, &inbound).await;
                     }
                 },
                 Some(followup) = follow_rx.recv() => {
@@ -290,6 +289,7 @@ impl Io {
                 }
                 Step::RequestMembers(guild) => self.request_members(guild),
                 Step::FetchThreadMembers(thread) => self.fetch_thread_members(thread),
+                Step::FetchMessage(update) => self.fetch_message(update),
             }
         }
         true
@@ -324,29 +324,44 @@ impl Io {
         }
     }
 
-    /// A gateway message that could not be read. Content edits that arrive in
-    /// pieces are fetched whole; everything else is skipped.
-    fn on_receive_error(&self, error: &twilight_gateway::error::ReceiveMessageError) {
-        match error.kind() {
-            ReceiveMessageErrorType::Deserializing { event } => {
-                match map::partial_update_target(event) {
-                    Some((channel, message)) => self.fetch_message(channel, message),
-                    None => tracing::debug!("skipped a gateway event twilight could not read"),
-                }
-            }
-            _ => tracing::warn!(%error, "gateway receive error"),
+    /// A gateway message that could not be read. A content edit that arrived
+    /// in pieces comes back for the cache to decide on; everything else is
+    /// skipped, with a warning unless it is a message update.
+    fn on_receive_error(
+        &self,
+        error: &twilight_gateway::error::ReceiveMessageError,
+    ) -> Option<map::PartialUpdate> {
+        let ReceiveMessageErrorType::Deserializing { event } = error.kind() else {
+            tracing::warn!(%error, "gateway receive error");
+            return None;
+        };
+        if let Some(update) = map::partial_update_target(event) {
+            return Some(update);
         }
+        match map::event_name(event) {
+            Some(name) if name == "MESSAGE_UPDATE" => {
+                tracing::debug!("skipped a message update with no new content");
+            }
+            name => tracing::warn!(
+                event = name.as_deref().unwrap_or("unknown"),
+                "skipped a gateway event that could not be read"
+            ),
+        }
+        None
     }
 
-    fn fetch_message(&self, channel: Id<ChannelMarker>, message: Id<MessageMarker>) {
+    /// Fetch the whole message, carrying over the guild the update named.
+    fn fetch_message(&self, update: map::PartialUpdate) {
         let (http, follow) = (Arc::clone(&self.http), self.follow.clone());
+        let (channel, message) = (update.channel, update.message);
         tokio::spawn(async move {
             let fetched = match http.message(channel, message).await {
                 Ok(response) => response.model().await.map_err(|e| e.to_string()),
                 Err(error) => Err(error.to_string()),
             };
             match fetched {
-                Ok(message) => {
+                Ok(mut message) => {
+                    message.guild_id = message.guild_id.or(update.guild);
                     let _ = follow.send(Followup::EditedMessage(Box::new(message)));
                 }
                 Err(error) => {
@@ -412,6 +427,24 @@ async fn run_actions(
             return;
         }
     }
+}
+
+/// Tell the engine the connector is down for good, after everything queued
+/// has reached it. Every other sender of the queue must be gone.
+async fn give_up(
+    reason: String,
+    forwarder: JoinHandle<()>,
+    inbound: &mpsc::Sender<InboundEvent>,
+) -> anyhow::Result<()> {
+    tracing::error!(%reason, "discord gateway is down");
+    let _ = forwarder.await;
+    let _ = inbound
+        .send(InboundEvent::Disconnected {
+            platform: Platform::Discord,
+            reason: reason.clone(),
+        })
+        .await;
+    anyhow::bail!(reason)
 }
 
 /// Pass queued events on to the engine, in order, until either side closes.
@@ -591,6 +624,52 @@ mod tests {
         }
         forwarder.await.unwrap();
         assert_eq!(seen, ["0", "1", "2", "3", "4"]);
+    }
+
+    #[tokio::test]
+    async fn giving_up_waits_for_a_stalled_engine_then_says_why_last() {
+        let (queue, queued) = mpsc::unbounded_channel();
+        let (inbound, mut engine) = mpsc::channel(1);
+        let forwarder = tokio::spawn(forward(queued, inbound.clone()));
+        for n in 0..3 {
+            queue
+                .send(InboundEvent::MessageDeleted {
+                    room: ours_types::PlatformRoomId::new(n.to_string()),
+                    id: "m".into(),
+                })
+                .unwrap();
+        }
+        drop(queue);
+        let stopping =
+            tokio::spawn(async move { give_up("gone".to_owned(), forwarder, &inbound).await });
+
+        // The engine reads nothing yet, so the queue cannot drain and nothing can finish.
+        for _ in 0..20 {
+            tokio::task::yield_now().await;
+        }
+        assert!(!stopping.is_finished());
+
+        let mut seen = Vec::new();
+        while let Some(event) = engine.recv().await {
+            seen.push(event);
+        }
+        let error = stopping.await.unwrap().unwrap_err();
+        assert_eq!(error.to_string(), "gone");
+        let rooms: Vec<_> = seen[..3]
+            .iter()
+            .map(|e| match e {
+                InboundEvent::MessageDeleted { room, .. } => room.to_string(),
+                other => panic!("{other:?}"),
+            })
+            .collect();
+        assert_eq!(rooms, ["0", "1", "2"]);
+        assert_eq!(
+            seen[3..],
+            [InboundEvent::Disconnected {
+                platform: Platform::Discord,
+                reason: "gone".to_owned()
+            }]
+        );
     }
 
     #[test]

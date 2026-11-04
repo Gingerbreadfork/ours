@@ -1,6 +1,6 @@
 use crate::error::StoreError;
 use crate::log::{EventLog, Redactor};
-use crate::record::{GENESIS_HASH, Record, Snapshot, StoreStats, record_hash};
+use crate::record::{ChainHead, GENESIS_HASH, Record, Snapshot, StoreStats, record_hash};
 use ours_types::Instant;
 use rusqlite::{Connection, OptionalExtension, Row, TransactionBehavior, params};
 use std::path::Path;
@@ -39,6 +39,19 @@ const MIGRATIONS: &[&str] = &[
 ",
 ];
 
+/// Made on every open rather than by a migration, so an older build can
+/// still open the file.
+const INDEXES: &str = "
+    CREATE INDEX IF NOT EXISTS events_at_redacted ON events (at, redacted);
+";
+
+/// Answered from `events_at_redacted` alone, so no payload is read.
+const STATS_SQL: &str = "SELECT COUNT(*), COALESCE(SUM(redacted), 0), MIN(at), MAX(at) FROM events";
+
+/// The newest snapshot and one before it, to fall back on when a redaction
+/// drops the newest.
+const KEPT_SNAPSHOTS: i64 = 2;
+
 const EVENT_COLUMNS: &str = "seq, kind, at, payload, prev_hash, hash, redacted";
 
 /// One group's log in one SQLite file. A single connection sits behind a
@@ -65,6 +78,7 @@ impl SqliteStore {
         conn.pragma_update(None, "synchronous", "NORMAL")?;
         conn.pragma_update(None, "foreign_keys", "ON")?;
         migrate(&mut conn)?;
+        conn.execute_batch(INDEXES)?;
         Ok(Self {
             conn: Mutex::new(conn),
         })
@@ -236,7 +250,7 @@ impl EventLog for SqliteStore {
     }
 
     #[tracing::instrument(level = "info", skip(self), fields(verified = tracing::field::Empty))]
-    fn verify_chain(&self) -> Result<u64, StoreError> {
+    fn verify_head(&self) -> Result<ChainHead, StoreError> {
         let mut expected_seq = 1u64;
         let mut prev_hash = GENESIS_HASH;
         loop {
@@ -277,12 +291,16 @@ impl EventLog for SqliteStore {
         }
         let verified = expected_seq - 1;
         Span::current().record("verified", verified);
-        Ok(verified)
+        Ok(ChainHead {
+            seq: verified,
+            hash: prev_hash,
+        })
     }
 
     fn save_snapshot(&self, seq: u64, state: &[u8]) -> Result<(), StoreError> {
-        let conn = self.conn();
-        let changed = conn.execute(
+        let mut conn = self.conn();
+        let tx = conn.transaction_with_behavior(TransactionBehavior::Immediate)?;
+        let changed = tx.execute(
             "INSERT INTO snapshots (seq, at, state)
              SELECT seq, at, ?2 FROM events WHERE seq = ?1
              ON CONFLICT (seq) DO UPDATE SET at = excluded.at, state = excluded.state",
@@ -291,6 +309,15 @@ impl EventLog for SqliteStore {
         if changed == 0 {
             return Err(StoreError::NoSuchEvent { seq });
         }
+        // The freed pages go on SQLite's free list and the next snapshot
+        // reuses them, so the file stops growing.
+        tx.execute(
+            "DELETE FROM snapshots WHERE seq < (
+                 SELECT seq FROM snapshots ORDER BY seq DESC LIMIT 1 OFFSET ?1
+             )",
+            [KEPT_SNAPSHOTS - 1],
+        )?;
+        tx.commit()?;
         Ok(())
     }
 
@@ -376,11 +403,9 @@ impl EventLog for SqliteStore {
     fn stats(&self) -> Result<StoreStats, StoreError> {
         let conn = self.conn();
         let (records, redacted, first, last): (i64, i64, Option<i64>, Option<i64>) = conn
-            .query_row(
-                "SELECT COUNT(*), COALESCE(SUM(redacted), 0), MIN(at), MAX(at) FROM events",
-                [],
-                |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?)),
-            )?;
+            .query_row(STATS_SQL, [], |row| {
+                Ok((row.get(0)?, row.get(1)?, row.get(2)?, row.get(3)?))
+            })?;
         let snapshots: i64 = conn.query_row("SELECT COUNT(*) FROM snapshots", [], |r| r.get(0))?;
         let instant = |ms: Option<i64>| {
             ms.map(|ms| Instant::from_millis(ms).ok_or_else(|| corrupt(0, "time out of range")))
@@ -822,14 +847,158 @@ mod tests {
     fn drop_snapshots_from_removes_the_right_ones() {
         let store = SqliteStore::open_in_memory().unwrap();
         fill(&store, 8);
-        for seq in [2, 4, 6, 8] {
+        for seq in [4, 8] {
             store.save_snapshot(seq, b"s").unwrap();
         }
-        assert_eq!(store.drop_snapshots_from(5).unwrap(), 2);
+        assert_eq!(store.drop_snapshots_from(5).unwrap(), 1);
         assert_eq!(store.load_latest_snapshot().unwrap().unwrap().seq, 4);
         assert_eq!(store.drop_snapshots_from(5).unwrap(), 0);
-        assert_eq!(store.drop_snapshots_from(1).unwrap(), 2);
+        assert_eq!(store.drop_snapshots_from(1).unwrap(), 1);
         assert_eq!(store.load_latest_snapshot().unwrap(), None);
+    }
+
+    fn snapshot_seqs(store: &SqliteStore) -> Vec<u64> {
+        let conn = store.conn();
+        let mut stmt = conn
+            .prepare("SELECT seq FROM snapshots ORDER BY seq")
+            .unwrap();
+        stmt.query_map([], |row| row.get::<_, i64>(0))
+            .unwrap()
+            .map(|seq| seq.unwrap() as u64)
+            .collect()
+    }
+
+    #[test]
+    fn only_the_newest_two_snapshots_are_kept() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        fill(&store, 8);
+        store.save_snapshot(2, b"s").unwrap();
+        assert_eq!(snapshot_seqs(&store), [2]);
+        for seq in [4, 6, 8] {
+            store.save_snapshot(seq, b"s").unwrap();
+        }
+        assert_eq!(snapshot_seqs(&store), [6, 8]);
+        store.save_snapshot(3, b"older").unwrap();
+        assert_eq!(snapshot_seqs(&store), [6, 8]);
+        store.save_snapshot(8, b"again").unwrap();
+        assert_eq!(snapshot_seqs(&store), [6, 8]);
+        assert_eq!(store.stats().unwrap().snapshots, 2);
+    }
+
+    #[test]
+    fn a_redaction_falls_back_to_the_older_snapshot() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        fill(&store, 10);
+        store.save_snapshot(4, b"at 4").unwrap();
+        store.save_snapshot(8, b"at 8").unwrap();
+        store.redact_where(&redact_payload(&[6])).unwrap();
+
+        let from = store.earliest_redacted().unwrap().unwrap();
+        assert_eq!(store.drop_snapshots_from(from).unwrap(), 1);
+        let fallback = store.load_latest_snapshot().unwrap().unwrap();
+        assert_eq!((fallback.seq, fallback.state.as_slice()), (4, &b"at 4"[..]));
+
+        store.save_snapshot(10, b"clean").unwrap();
+        assert_eq!(snapshot_seqs(&store), [4, 10]);
+    }
+
+    #[test]
+    fn space_from_dropped_snapshots_is_reused() {
+        const STATE: usize = 64 * 1024;
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("g.db");
+        let store = SqliteStore::open(&path).unwrap();
+        fill(&store, 40);
+        for seq in 1..=40u8 {
+            store.save_snapshot(u64::from(seq), &[seq; STATE]).unwrap();
+        }
+        let conn = raw(&path);
+        let pages: i64 = conn
+            .pragma_query_value(None, "page_count", |r| r.get(0))
+            .unwrap();
+        let page_size: i64 = conn
+            .pragma_query_value(None, "page_size", |r| r.get(0))
+            .unwrap();
+        let bytes = (pages * page_size) as usize;
+        assert!(bytes < 5 * STATE, "{bytes} bytes for two kept snapshots");
+    }
+
+    #[test]
+    fn stats_reads_the_index_not_the_table() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        fill(&store, 3);
+        let conn = store.conn();
+        let plan: Vec<String> = conn
+            .prepare(&format!("EXPLAIN QUERY PLAN {STATS_SQL}"))
+            .unwrap()
+            .query_map([], |row| row.get(3))
+            .unwrap()
+            .map(Result::unwrap)
+            .collect();
+        assert_eq!(plan.len(), 1, "{plan:?}");
+        assert!(
+            plan[0].contains("USING COVERING INDEX events_at_redacted"),
+            "{plan:?}"
+        );
+    }
+
+    #[test]
+    fn an_existing_file_gets_the_index_on_open() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("g.db");
+        drop(SqliteStore::open(&path).unwrap());
+        let has_index = || -> bool {
+            raw(&path)
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master
+                     WHERE type = 'index' AND name = 'events_at_redacted'",
+                    [],
+                    |row| row.get::<_, i64>(0),
+                )
+                .unwrap()
+                == 1
+        };
+        raw(&path)
+            .execute_batch("DROP INDEX events_at_redacted")
+            .unwrap();
+        assert!(!has_index());
+
+        let store = SqliteStore::open(&path).unwrap();
+        assert!(has_index());
+        let version: u32 = raw(&path)
+            .pragma_query_value(None, "user_version", |r| r.get(0))
+            .unwrap();
+        assert_eq!(version, 2);
+        fill(&store, 2);
+        assert_eq!(store.stats().unwrap().records, 2);
+    }
+
+    #[test]
+    fn verify_head_names_the_newest_seq_and_hash() {
+        let store = SqliteStore::open_in_memory().unwrap();
+        assert_eq!(
+            store.verify_head().unwrap(),
+            ChainHead {
+                seq: 0,
+                hash: GENESIS_HASH
+            }
+        );
+        let written = fill(&store, PAGE as u64 + 3);
+        let head = store.verify_head().unwrap();
+        assert_eq!(head.seq, PAGE as u64 + 3);
+        assert_eq!(head.hash, written.last().unwrap().hash);
+
+        store.redact_where(&redact_payload(&[2])).unwrap();
+        assert_eq!(store.verify_head().unwrap(), head);
+
+        store
+            .conn()
+            .execute("UPDATE events SET payload = x'00' WHERE seq = 5", [])
+            .unwrap();
+        assert!(matches!(
+            store.verify_head(),
+            Err(StoreError::Corrupt { seq: 5, .. })
+        ));
     }
 
     #[test]

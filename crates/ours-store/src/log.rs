@@ -1,5 +1,5 @@
 use crate::error::StoreError;
-use crate::record::{Record, Snapshot, StoreStats};
+use crate::record::{ChainHead, Record, Snapshot, StoreStats};
 use ours_types::Instant;
 
 /// Decides whether a record is redacted: given `(seq, kind, payload)`,
@@ -19,12 +19,20 @@ pub trait EventLog: Send + Sync {
     /// The newest record, if any.
     fn latest(&self) -> Result<Option<Record>, StoreError>;
 
+    /// Walks the whole chain and returns where it ends, or `Corrupt` naming
+    /// the first bad seq. It reads a page at a time, so appends still go
+    /// through while it runs.
+    fn verify_head(&self) -> Result<ChainHead, StoreError>;
+
     /// Walks the whole chain and returns how many records it checked, or
     /// `Corrupt` naming the first bad seq.
-    fn verify_chain(&self) -> Result<u64, StoreError>;
+    fn verify_chain(&self) -> Result<u64, StoreError> {
+        self.verify_head().map(|head| head.seq)
+    }
 
-    /// Stores `state` as the snapshot at `seq`, replacing one already there.
-    /// The event at `seq` must exist.
+    /// Stores `state` as the snapshot at `seq`, replacing one already there,
+    /// then drops all but the newest two snapshots. The event at `seq` must
+    /// exist.
     fn save_snapshot(&self, seq: u64, state: &[u8]) -> Result<(), StoreError>;
 
     /// The snapshot with the highest seq.

@@ -25,6 +25,23 @@ pub struct Snapshot {
     pub state: Vec<u8>,
 }
 
+/// Where a verified chain ends. `seq` is the newest record's seq, which is
+/// also how many records the log holds; an empty log gives 0 and
+/// `GENESIS_HASH`. Keeping `hash` outside the file lets a later check show
+/// that the log was not rewritten.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ChainHead {
+    pub seq: u64,
+    pub hash: [u8; 32],
+}
+
+impl ChainHead {
+    /// The head hash as 64 lower-case hex digits.
+    pub fn hash_hex(&self) -> String {
+        self.hash.iter().map(|b| format!("{b:02x}")).collect()
+    }
+}
+
 /// Counts and time span of a log, for the compliance page.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoreStats {
@@ -80,6 +97,15 @@ mod tests {
             hex(&hash),
             "523f984afe7e7b6b25f02340df3187398a2bbf491dd3ff9aafe315efad81e85c"
         );
+    }
+
+    #[test]
+    fn a_chain_head_prints_its_hash_as_hex() {
+        let mut hash = [0u8; 32];
+        hash[0] = 0xab;
+        hash[31] = 0x05;
+        let head = ChainHead { seq: 3, hash };
+        assert_eq!(head.hash_hex(), format!("ab{}05", "00".repeat(30)));
     }
 
     #[test]

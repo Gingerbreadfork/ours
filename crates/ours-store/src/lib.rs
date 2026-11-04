@@ -13,5 +13,5 @@ mod sqlite;
 pub use dir::StoreDir;
 pub use error::StoreError;
 pub use log::{EventLog, Redactor};
-pub use record::{GENESIS_HASH, Record, Snapshot, StoreStats, record_hash};
+pub use record::{ChainHead, GENESIS_HASH, Record, Snapshot, StoreStats, record_hash};
 pub use sqlite::SqliteStore;

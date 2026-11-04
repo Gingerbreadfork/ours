@@ -65,7 +65,9 @@ Noa:     I haven't seen any budget discussion in this room. If you want,
 
 The guest was answered from the room, never obeyed, and never told what the room said behind her. Not because the prompt asked nicely: the role is computed before the model is called and the permitted actions are enforced after it.
 
-Transcripts are verbatim from 2026-11-04, so "tomorrow" in them is relative to that day. Measured, not asserted: fourteen scenarios scored against a plain wrapper on the same model, Ours 100, the wrapper 72 ([results](benchmark/RESULTS.md)).
+Transcripts are verbatim from 2026-11-04, so "tomorrow" in them is relative to that day.
+
+Measured, not asserted: fourteen scenarios scored against a plain wrapper on the same model, Ours 100, the wrapper 72 ([results](benchmark/RESULTS.md)).
 
 ## What it does
 
@@ -77,7 +79,7 @@ Transcripts are verbatim from 2026-11-04, so "tomorrow" in them is relative to t
 
 **Knows what time it is for everyone.** Each member's zone, the group's calendar with an ICS feed per person, recurrence, availability, quiet hours and the right moment to speak.
 
-**Acts first, undoably.** It can email a venue or hold a date. Anything that leaves the group is held for a window, announced in one line, and undone with one word by whoever asked or whoever leads. "Booked." is never said before it is true.
+**Acts first, undoably.** It can email a venue or hold a date. Anything that leaves the group is held for a window, announced in one line, and undone with one word by whoever asked or whoever leads; the journal knows who asked and who approved. "Booked." is never said before it is true.
 
 **Takes orders only from leads.** Owners, admins and a named user group seed the leads list. Members' requests wait for a lead's ✅. Guests, external users and the group's own inbox are answered and never obeyed.
 
@@ -120,7 +122,6 @@ It needs an OpenAI-compatible chat endpoint. A local llama.cpp server with a 30B
 The engine is a pure fold: `step(&mut state, input, now) -> Vec<Effect>`. It does no I/O, reads no clock and spawns nothing. Every outside fact arrives as an input, every wish leaves as an effect, and every input is journaled before it is folded. That one decision buys the rest:
 
 - **Replay.** `ours replay <group>` folds a group's journal again and reports any divergence, which is the determinism check. `--live` answers the engine's requests with a different model instead, so you can see what a new model or a new build would have said over everything that ever happened, without sending anything.
-- **Undo.** Actions that leave the group are held, then released; the journal knows who asked and who approved.
 - **Honest forgetting.** "Forget me" redacts the words from the journal records and drops the snapshots that held them, and the hash chain still verifies.
 - **Deterministic tests.** The engine ships with scenario tests that read like the design document, and the runtime with an in-memory connector.
 
@@ -128,19 +129,13 @@ One SQLite file per group holds the journal, the snapshots and the settings. Bac
 
 ```text
 crates/
-  ours-types             ids, roles, the connector event model
   ours-core              the engine: the pure fold, authority, triage, memory, decisions, time
   ours-store             the hash-chained journal and snapshots on SQLite
-  ours-connector         the Connector trait and the in-memory simulator
-  ours-connector-discord twilight
-  ours-connector-slack   Socket Mode, threads, Slack Connect guests
-  ours-connector-telegram
-                         the Bot API, forum topics, admins as leads, native polls
   ours-model             the model client, the classifier, the extractor, the time resolver
-  ours-mail              the group's address: SMTP out, IMAP in
-  ours-admin             the admin and compliance pages
   ours                   the binary: config, wiring, replay, benchmark, telemetry
 ```
+
+The full crate map, with the DESIGN.md sections each crate answers to, is in [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Privacy, in five lines
 

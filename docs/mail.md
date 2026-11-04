@@ -25,7 +25,8 @@ host is responsible for it. Do not point it at a personal inbox. See
 
 No server is needed. Outgoing mail is written as `.eml` files into
 `dir/out`. A reply is "received" when you drop an `.eml` file into
-`dir/in`; each file is read once and moved to `dir/in/seen`. Message ids,
+`dir/in`. Once every group has it, the file moves to `dir/in/seen`; a
+file that cannot be read as mail moves to `dir/in/failed`. Message ids,
 `In-Reply-To` and the `X-Ours-Action` header are filled in, so you can
 open a sent file in a mail client and answer it. Dir mode wins over `smtp`.
 
@@ -96,6 +97,11 @@ counts as a reply only when it answers the message id the agent sent or
 comes from the exact address the agent wrote to, never just the same
 domain. Authentication is read only from your own provider's
 `Authentication-Results` header (see `authserv_id` in configure.md), so a
-header the sender wrote themselves does not count. Mail that answers
+header the sender wrote themselves does not count. A sender counts as
+verified when that header reports `dmarc=pass` for the From domain, or,
+when it gives no DMARC verdict, a DKIM or SPF pass for the From domain or a
+subdomain of it. Any other DMARC result means unverified. Over IMAP a
+message is flagged as read only after every group has kept it; after a
+crash it is read again, and a mail already handled is ignored. Mail that answers
 nothing the agent sent is not kept. Every group hears incoming mail, and only the one that sent the
 original keeps it.

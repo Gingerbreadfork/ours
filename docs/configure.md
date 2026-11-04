@@ -29,7 +29,7 @@ OpenAI-compatible chat endpoint works.
 | `model` | none, required | The model name sent with each request. It is also what the pinned message and the charter tell the group the agent runs on. |
 | `dialect` | `"openai"` | `openai`, `llama_cpp` or `ollama`. With `openai` the engine's reply schema is sent as a strict response format. |
 | `api_key` | none | Sent as a bearer token when set. Env: `OURS_MODEL_API_KEY`. |
-| `daily_cap_usd` | `1.0` | A spend cap per group per UTC day. Past it the model is not called. |
+| `daily_cap_usd` | `1.0` | A spend cap per group per UTC day, above zero, shared by the chat model and the small model. Past it the model is not called. |
 | `timeout_secs` | `60` | Per request. The small stages use it too. |
 | `chat_temperature` | `0.8` | For replies. Extraction and scoring always use 0. |
 | `chat_max_tokens` | `700` | The reply budget in tokens. |
@@ -88,12 +88,14 @@ Optional. Without it the group only sends.
 | `password` | required in the file | Env: `OURS_IMAP_PASSWORD`. |
 | `folder` | `"INBOX"` | |
 | `poll_secs` | `60` | Seconds between checks, never less than one. |
-| `authserv_id` | the `host` | The name your provider writes at the start of its `Authentication-Results` header. A mail counts as verified only when that header is the provider's; with no match every mail is treated as unverified. |
+| `authserv_id` | the `host` | The name your provider writes at the start of its `Authentication-Results` header. A mail counts as verified only when that header is the provider's; with no match every mail is treated as unverified. Some providers, Microsoft 365 among them, leave this name out of the header, and then no mail can be verified. |
 
 ## `[[connectors]]`
 
 One table per platform. `discord`, `slack` and `telegram` are built; the
-other platform names in the schema are not in this release.
+other platform names in the schema are not in this release. `ours check`
+and `ours run` refuse a second table for the same platform and any platform
+that is not built.
 
 | Key | Default | What it does |
 |---|---|---|

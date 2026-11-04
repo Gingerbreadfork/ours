@@ -10,6 +10,7 @@ Everything is under `data_dir`:
 | `<group id>.charter.md` | The group's settings as Markdown, rewritten when they change. |
 | `<group id>.decisions.md` | The decision log, rewritten when a decision closes. |
 | `telemetry/<date>.jsonl` | Telemetry records, only when telemetry is on. |
+| `telegram/polls.json` | The agent's open Telegram polls and their votes, so votes count across a restart. Only with a Telegram connector. |
 | the `[mail] dir` folder | Only in mail dir mode. |
 
 There is no other state. The `.md` files are views and can be deleted.
@@ -34,7 +35,17 @@ The state is rebuilt from the newest snapshot and the log after it.
 4. Run the replay check below on a copy of the data.
 
 The journal and snapshots are read by the new version. Nothing is migrated
-by hand.
+by hand. The first start of a new version may add an index to each
+journal, which takes a moment on a large file.
+
+## Checking the journal
+
+Each group's journal is a hash chain. Every start walks it and logs
+`journal chain verified` with the record count and the head hash, or an
+error naming the first record that does not match. `ours check` does the
+same for every group and fails if any chain is broken. Write the head hash
+down somewhere outside the machine from time to time: a chain that still
+verifies but has a different head was rewritten.
 
 ## Logs
 
@@ -52,7 +63,9 @@ supervisor.
 - SIGINT and SIGTERM stop the process. Every group finishes what it is
   doing, writes a snapshot and exits. The process waits up to ten seconds.
 - A snapshot is also written every 200 inputs, so a restart replays only the
-  tail.
+  tail. Only the newest two are kept and their space is reused. A file from
+  an earlier version keeps its size until you run `sqlite3 <group id>.db
+  VACUUM` with the agent stopped.
 - If a connector stops for good (for example Slack tokens revoked), the
   whole process stops with a message, on purpose, so the failure is seen.
   The unit file restarts it, and it will keep stopping until the cause is
@@ -155,8 +168,11 @@ This is the exact shape of a record:
     }
 
 - `host` is a random id made once per host, 16 hex characters.
-- `group` is the first 16 hex characters of SHA-256 over the host id and
-  the group id, so groups cannot be matched across hosts.
+- `group` is the first 16 hex characters of SHA-256 over a random salt and
+  the group id. The salt is made once per group, kept in the group's file
+  and never sent, so the tag cannot be traced back to the group or matched
+  across hosts. A host that sent telemetry before this release gets a new
+  tag for each group.
 - `kind` is the group's kind and `dial` its persona dial, 0 to 3.
 - `at_hour_utc` is the hour the message was scored, 0 to 23.
 - `score` is the six signals, banter, the message kind (question,
@@ -176,6 +192,8 @@ record. The compliance page prints the same sample.
 
 ## Spend
 
-`daily_cap_usd` limits model spend per group per UTC day. The meter is in
-memory and starts at zero on restart. The admin page does not chart spend in
+`daily_cap_usd` limits model spend per group per UTC day. The chat model
+and the small model count against the same cap, even when `[classifier]`
+uses its own endpoint. The meter is in memory and starts at zero on
+restart. The admin page does not chart spend in
 this release; watch your model provider, or run a local model.

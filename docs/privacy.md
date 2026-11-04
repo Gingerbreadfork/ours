@@ -45,7 +45,14 @@ Per group:
   pruned by age in this release. Forgetting redacts it, and wiping a
   group removes it.
 
-Not kept: card numbers (refused) and bank details. Rooms not listed in the
+On Telegram the agent also keeps its open polls, with who voted for what,
+in `telegram/polls.json`, so votes count across a restart. A poll's votes
+are dropped from it when the poll ends. It is not per group, so wiping a
+group does not remove it.
+
+Not kept: card numbers, wherever they are said. A message with one is
+never read or held, it is scrubbed from the journal, and its author is told
+why. Bank details are not kept either. Rooms not listed in the
 config are not served. A short ring of recent lines per room is kept for
 context.
 
@@ -95,7 +102,9 @@ group.
 - `that's wrong`: retracts a fact and records the correction with you as the
   source.
 - `forget me`: removes every fact with you as subject or source, closes your
-  commitments, drops your reply hour, and says so in the room in one line.
+  commitments, drops your reply hour, stops any settle-up waiting on you,
+  and says so in the room in one line. Your tab lines stay, since other
+  people's shares are on them.
 
 Forgetting also redacts the journal. The text of the messages involved, or
 every message you wrote for `forget me`, is replaced with `[forgotten]`, and
@@ -116,8 +125,12 @@ forgetting removes content.
   community and cohort groups and 365 days in team, project and committee
   groups. A daily sweep drops action records past that age and facts past
   their expiry. The period is shown on the Profile tab and on the
-  compliance page.
-- **Legal hold** turns the sweep off, so nothing expires or is dropped. A
+  compliance page. Outside a legal hold the action log also has a ceiling
+  of 10,000 records; if a group passes it, the oldest records go before
+  their 90 or 365 days are up, and the admin page shows a notice saying
+  how many.
+- **Legal hold** turns the sweep and the ceiling off, so nothing expires or
+  is dropped. A
   lead says `Noa, legal hold on` or `Noa, hold everything`, or the host uses the
   compliance page. It
   is a button on the compliance page and `legal_hold = true` in the config.
@@ -133,7 +146,9 @@ Only these.
 
 - **The model.** Messages the agent is asked about, with the context it
   needs, go to the model endpoint the host configured. The pinned message
-  and the charter say which model and where. If it is a model on the host's
+  and the charter say which model and where: on the host's machine, on its
+  network, or at a named hosted service. If the small model that reads
+  every message is hosted elsewhere, they say that too. If it is a model on the host's
   own network, nothing leaves. If it is a hosted service, its terms apply to
   the text sent.
 - **The platform.** Replies, reactions, DMs and polls go to Discord or Slack
@@ -169,4 +184,6 @@ model the agent uses. A group that cares can insist on a local one.
 
 The host is responsible for the group they add the agent to, and for
 telling its members. The first conversation and the join message do part
-of that. A workplace should also tell its people, in its own words.
+of that: someone who joins a room after the agent is there gets one DM
+saying what it keeps, whom it listens to, that the host sees everything,
+and how to see or delete what it holds about them. A workplace should also tell its people, in its own words.

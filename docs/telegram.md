@@ -65,7 +65,10 @@ in the log names the new id.
 - **Polls** are native, non-anonymous, two to twelve options of up to a
   hundred characters. Reacting to a poll message is not voting there; people vote in
   the poll. Anything the engine cannot express as a Telegram poll falls back
-  to a reaction ballot.
+  to a reaction ballot. The agent keeps a record of its open polls in
+  `telegram/polls.json` under the data directory, so a poll opened before a
+  restart still counts the votes cast after it. Once a poll ends, its votes
+  are dropped from that file.
 - **Reactions** work both ways within Telegram's fixed set of about seventy
   emoji. 👀, 👍 and 👎 are in it; ✅, 🙋, 📌, 🤫, 🙅, ✌️ and ❌ are not, so the
   agent uses stand-ins and reads the same ones back from members: 👍

@@ -59,9 +59,9 @@ about them, whatever their role. See [privacy.md](privacy.md).
 | Say | Who | What it does |
 |---|---|---|
 | `Noa, what do you know about me` (also `what do you remember about me`, `my data`) | anyone | Everything it holds about you, with sources, by DM. It says that it also keeps the hour you usually reply, for timing only. |
-| `Noa, forget me` (also `delete my data`, `forget everything about me`) | anyone | Removes every fact with you as subject or source, closes your commitments and drops your reply hour. One line in the room, no detail. |
+| `Noa, forget me` (also `delete my data`, `forget everything about me`) | anyone | Removes every fact with you as subject or source, closes your commitments, drops your reply hour and stops settle-ups waiting on you. One line in the room, no detail. |
 | `forget that` (reply to a message, or reply to one of its own) | anyone for facts about themselves; a lead for others | Drops the fact from that message, or the facts the agent's reply cited. A member's request about someone else's fact waits for a lead's ✅. |
-| `that's wrong, it's Lisbon` (also `wrong`, `that's not right`) | same | Retracts the fact and records the correction with you as the source. |
+| `that's wrong, it's Lisbon` (also `wrong`, `that's not right`) | same | Retracts the fact and records the correction with you as the source. Said alone, it means the agent's last message only if that was in the last ten minutes or is the latest in the room. |
 | `remember that Sam is vegetarian` (also `note that`, `keep in mind that`, `make a note that`) | same | Keeps the fact, as durable. In a reply, remembers the message you replied to. |
 | `just for this week` (reply to a fact) | same | Makes the fact expire in a week. |
 | `Noa, backfill` (also `catch up`, `read the last 90 days`, `read the history`) | lead | Reads the room's last 90 days and keeps what is worth keeping. One at a time per room, and one `undo` takes all of it back. A member's request waits for a lead's ✅. |
@@ -123,8 +123,8 @@ The agent keeps the tab and never moves money.
 | `Noa, what's the tab` (also `balances`, `who owes what`) | anyone | Net balance per person. |
 | `Noa, what do I owe` (also `my balance`) | anyone | Yours. |
 | `not me` (also `count me out`) / `double for me` | member | Adjusts your share of the latest line. |
-| `Noa, settle up` | member | DMs each debtor an amount and the creditor's payment link, minimum transfers. |
-| `my payment link is ...` | anyone, in a DM only | Keeps the link as an opaque string. Said in a room, it is not kept. Card numbers are refused. |
+| `Noa, settle up` | member | DMs each debtor an amount and the creditor's payment link, minimum transfers, for the tab where you ask: a room settles its own lines and those entered by DM; from a DM, every room you are in. |
+| `my payment link is ...` | anyone, in a DM only | Keeps the link as an opaque string. Said in a room, it is not kept. A card number said anywhere is never kept. |
 | `paid` | in a DM | Marks your debt paid; the creditor confirms with a reaction. |
 
 ## Time and calendar
@@ -132,7 +132,7 @@ The agent keeps the tab and never moves money.
 | Say | Who | What it does |
 |---|---|---|
 | `Noa, calendar link` | anyone | The feed for the room. A member's own feed shows only what they are in. |
-| `Noa, monthly dinner on the first Thursday` (also `weekly planning every Monday 10am`, `subs due on the first`) | member, in a room | Creates a recurrence on the group calendar. |
+| `Noa, monthly dinner on the first Thursday` (also `weekly planning every Monday 10am`, `subs due on the first`) | member, in a room | Creates a recurrence on the group calendar. Saying it again for the same thing changes it instead of adding a second one. |
 | `Noa, pause the dinner` / `resume the dinner` | member, in a room | Pauses or resumes a recurrence. A recurrence that gets no response twice is paused with one line. |
 | `Noa, my timezone is ...` | anyone | See Memory and rights. |
 
@@ -157,7 +157,7 @@ declined. A setting changes back by saying it the other way.
 | `Noa, Sam is not a lead` | Removes them. |
 | `Noa, leads: Sam, Jo` / `leads are everyone` | Replaces the named list, or makes everyone a lead. |
 | `Noa, quiet after 10` / `quiet hours 10pm to 7am` / `no quiet hours` | Quiet hours in the group's zone. |
-| `Noa, working hours 9 to 6` / `no working hours` | Working hours, Monday to Friday. |
+| `Noa, working hours 9 to 6` / `no working hours` | Working hours, Monday to Friday. They may run past midnight, such as 6pm to 2am. |
 | `Noa, dial it down` / `dial it up` / `dial to 2` | The persona dial, 0 to 3. |
 | `Noa, be the clerk` / `sound like the host` / `use the keeper persona` / `switch to the wag voice` | Pick a starter persona by name; `use the plain default` goes back. A dial 2 starter leaves the dial where it is. |
 | `Noa, who can you be?` | Anyone: lists the six starter personas and which is in use. |

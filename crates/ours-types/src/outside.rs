@@ -54,6 +54,8 @@ pub struct InboundMail {
     /// The message ids this replies to, newest first, for matching against
     /// mail the group sent.
     pub in_reply_to: Vec<String>,
-    /// DKIM and SPF both passed; otherwise the sender is less trusted.
+    /// The receiver's DMARC check passed for the From domain, or with no
+    /// DMARC verdict a DKIM or SPF pass aligned with it. Otherwise the
+    /// sender is less trusted.
     pub authenticated: bool,
 }

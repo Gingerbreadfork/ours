@@ -34,6 +34,7 @@ pub fn parse_eml(
         .map(|n| n.trim().to_owned())
         .filter(|n| !n.is_empty());
 
+    let authenticated = authenticated(&message, receiver, &from);
     let body = message
         .body_text(0)
         .map(|text| plain_body(&text))
@@ -53,7 +54,7 @@ pub fn parse_eml(
             .map(|id| id.trim().to_owned())
             .filter(|id| !id.is_empty()),
         in_reply_to: reply_ids(&message),
-        authenticated: authenticated(&message, receiver),
+        authenticated,
     })
 }
 
@@ -83,65 +84,220 @@ fn reply_ids(message: &Message<'_>) -> Vec<String> {
 }
 
 /// True only when the topmost Authentication-Results header written by
-/// the receiver reports both dkim=pass and spf=pass. Headers whose
-/// authserv-id is not the receiver may come from the sender and are
-/// ignored; with no receiver nothing is trusted.
-fn authenticated(message: &Message<'_>, receiver: Option<&str>) -> bool {
+/// the receiver vouches for the From domain. Headers whose authserv-id is
+/// not the receiver may come from the sender and are ignored; with no
+/// receiver nothing is trusted.
+fn authenticated(message: &Message<'_>, receiver: Option<&str>, from: &str) -> bool {
     let Some(receiver) = receiver.map(str::trim).filter(|r| !r.is_empty()) else {
+        return false;
+    };
+    let Some((_, from_domain)) = from.rsplit_once('@') else {
         return false;
     };
     message
         .headers()
         .all("Authentication-Results")
-        .map(|h| String::from_utf8_lossy(h.raw_value()).into_owned())
-        .find(|value| authserv_id(value).is_some_and(|id| id.eq_ignore_ascii_case(receiver)))
-        .is_some_and(|value| results_pass(&value))
+        .map(|h| tokens(&String::from_utf8_lossy(h.raw_value())))
+        .find(|tokens| authserv_id(tokens).is_some_and(|id| id.eq_ignore_ascii_case(receiver)))
+        .and_then(|tokens| results(&tokens))
+        .is_some_and(|results| vouches(&results, from_domain))
 }
 
-/// The authserv-id: the first token before the first ';'.
-fn authserv_id(value: &str) -> Option<String> {
-    let value = strip_comments(value);
-    let head = value.split(';').next()?;
-    head.split_whitespace().next().map(str::to_owned)
-}
-
-/// Reads `method=result` pairs from an Authentication-Results value.
-fn results_pass(value: &str) -> bool {
-    let value = strip_comments(value);
-    let mut dkim = false;
-    let mut spf = false;
-    // The first segment is the server's identity; each later one is a result.
-    for part in value.split(';').skip(1) {
-        let Some(first) = part.split_whitespace().next() else {
-            continue;
-        };
-        let Some((method, result)) = first.split_once('=') else {
-            continue;
-        };
-        if !result.eq_ignore_ascii_case("pass") {
-            continue;
-        }
-        match method.to_ascii_lowercase().as_str() {
-            "dkim" => dkim = true,
-            "spf" => spf = true,
-            _ => {}
-        }
+/// A dmarc=pass for the From domain is enough, and any dmarc verdict other
+/// than pass or none refuses the mail. Otherwise a dkim or spf pass must
+/// align with the From domain.
+fn vouches(results: &[AuthResult], from_domain: &str) -> bool {
+    let dmarc: Vec<&AuthResult> = results.iter().filter(|r| r.method == "dmarc").collect();
+    if dmarc
+        .iter()
+        .any(|r| r.result != "pass" && r.result != "none")
+    {
+        return false;
     }
-    dkim && spf
+    let dmarc_pass = dmarc.iter().any(|r| {
+        r.result == "pass"
+            && r.prop("header.from")
+                .is_some_and(|d| same_domain(d, from_domain))
+    });
+    dmarc_pass
+        || results.iter().filter(|r| r.result == "pass").any(|r| {
+            let props: &[&str] = match r.method.as_str() {
+                "dkim" => &["header.d", "header.i"],
+                "spf" => &["smtp.mailfrom"],
+                _ => &[],
+            };
+            props
+                .iter()
+                .filter_map(|p| r.prop(p))
+                .any(|v| aligned(domain_of(v), from_domain))
+        })
 }
 
-fn strip_comments(value: &str) -> String {
-    let mut out = String::with_capacity(value.len());
-    let mut depth = 0usize;
-    for c in value.chars() {
-        match c {
-            '(' => depth += 1,
-            ')' if depth > 0 => depth -= 1,
-            _ if depth == 0 => out.push(c),
-            _ => {}
+/// The part after the last '@', or all of it when there is none.
+fn domain_of(value: &str) -> &str {
+    value.rsplit_once('@').map_or(value, |(_, domain)| domain)
+}
+
+fn same_domain(a: &str, b: &str) -> bool {
+    a.trim_end_matches('.')
+        .eq_ignore_ascii_case(b.trim_end_matches('.'))
+}
+
+/// The same domain, or one a subdomain of the other. Without a public
+/// suffix list this stands in for DMARC's relaxed alignment.
+fn aligned(domain: &str, from_domain: &str) -> bool {
+    let a = domain.trim_end_matches('.').to_ascii_lowercase();
+    let b = from_domain.trim_end_matches('.').to_ascii_lowercase();
+    !a.is_empty()
+        && !b.is_empty()
+        && (a == b || a.ends_with(&format!(".{b}")) || b.ends_with(&format!(".{a}")))
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Token {
+    Word(String),
+    Eq,
+    Semi,
+    /// A quoted string or comment that is never closed.
+    Open,
+}
+
+/// Splits an Authentication-Results value into words, '=' and ';'. A
+/// quoted string joins the word it sits in, so a ';' or '(' inside it is
+/// plain text. Comments are dropped.
+fn tokens(value: &str) -> Vec<Token> {
+    let mut out = Vec::new();
+    let mut word = String::new();
+    let mut chars = value.chars();
+    while let Some(c) = chars.next() {
+        let next = match c {
+            '"' => {
+                if quoted(&mut chars, &mut word) {
+                    continue;
+                }
+                Some(Token::Open)
+            }
+            '(' => (!comment(&mut chars)).then_some(Token::Open),
+            ';' => Some(Token::Semi),
+            '=' => Some(Token::Eq),
+            c if c.is_whitespace() => None,
+            c => {
+                word.push(c);
+                continue;
+            }
+        };
+        if !word.is_empty() {
+            out.push(Token::Word(std::mem::take(&mut word)));
         }
+        out.extend(next);
+    }
+    if !word.is_empty() {
+        out.push(Token::Word(word));
     }
     out
+}
+
+/// Reads a quoted string, after its opening quote, into `word`. False when
+/// it is never closed.
+fn quoted(chars: &mut std::str::Chars<'_>, word: &mut String) -> bool {
+    while let Some(c) = chars.next() {
+        match c {
+            '"' => return true,
+            '\\' => word.extend(chars.next()),
+            c => word.push(c),
+        }
+    }
+    false
+}
+
+/// Skips a comment, nested ones included, after its opening '('. False
+/// when it is never closed.
+fn comment(chars: &mut std::str::Chars<'_>) -> bool {
+    let mut depth = 1usize;
+    while let Some(c) = chars.next() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return true;
+                }
+            }
+            '\\' => {
+                chars.next();
+            }
+            _ => {}
+        }
+    }
+    false
+}
+
+/// The authserv-id: the first word.
+fn authserv_id(tokens: &[Token]) -> Option<&str> {
+    match tokens.first() {
+        Some(Token::Word(id)) => Some(id),
+        _ => None,
+    }
+}
+
+/// The results after the authserv-id. None at all when a quote or comment
+/// is left open, since the rest of the header cannot be read.
+fn results(tokens: &[Token]) -> Option<Vec<AuthResult>> {
+    if tokens.contains(&Token::Open) {
+        return None;
+    }
+    Some(
+        tokens
+            .split(|t| *t == Token::Semi)
+            .skip(1)
+            .filter_map(AuthResult::read)
+            .collect(),
+    )
+}
+
+/// One `method=result` and the `name=value` properties after it. The
+/// method, result and names are lowercased.
+#[derive(Debug)]
+struct AuthResult {
+    method: String,
+    result: String,
+    props: Vec<(String, String)>,
+}
+
+impl AuthResult {
+    fn read(segment: &[Token]) -> Option<Self> {
+        let [
+            Token::Word(method),
+            Token::Eq,
+            Token::Word(result),
+            rest @ ..,
+        ] = segment
+        else {
+            return None;
+        };
+        let mut rest = rest;
+        let mut props = Vec::new();
+        while !rest.is_empty() {
+            if let [Token::Word(name), Token::Eq, Token::Word(value), tail @ ..] = rest {
+                props.push((name.to_ascii_lowercase(), value.clone()));
+                rest = tail;
+            } else {
+                rest = &rest[1..];
+            }
+        }
+        Some(Self {
+            method: method.to_ascii_lowercase(),
+            result: result.to_ascii_lowercase(),
+            props,
+        })
+    }
+
+    fn prop(&self, name: &str) -> Option<&str> {
+        self.props
+            .iter()
+            .find(|(n, _)| n == name)
+            .map(|(_, v)| v.as_str())
+    }
 }
 
 /// The text body with line endings made plain and quoted replies removed.
@@ -303,7 +459,7 @@ mod tests {
     }
 
     #[test]
-    fn dkim_and_spf_pass_is_authenticated() {
+    fn the_receivers_dmarc_pass_is_authenticated() {
         let m = parse(
             "Authentication-Results: mx.example.org (Postfix);\n \
              spf=pass (sender ok) smtp.mailfrom=venue.example;\n \
@@ -317,41 +473,136 @@ mod tests {
         assert!(m.authenticated);
     }
 
+    const TAIL: &str = "From: a@venue.example\nSubject: Hi\n\nHello\n";
+
+    /// Passes that align with the From domain of `TAIL`.
+    const ALIGNED: &str = "dkim=pass header.d=venue.example; spf=pass smtp.mailfrom=venue.example";
+
+    /// Whether `TAIL` counts as authenticated under one receiver header.
+    fn authenticated_with(results: &str) -> bool {
+        parse(&format!("Authentication-Results: {results}\n{TAIL}")).authenticated
+    }
+
     #[test]
-    fn dkim_alone_is_not_authenticated() {
-        let m = parse(
-            "Authentication-Results: mx.example.org; dkim=pass header.d=venue.example; spf=fail\n\
-             From: a@venue.example\n\
-             Subject: Hi\n\
-             \n\
-             Hello\n",
+    fn an_aligned_dkim_pass_is_enough_without_dmarc() {
+        assert!(authenticated_with(
+            "mx.example.org; dkim=pass header.d=venue.example; spf=fail"
+        ));
+    }
+
+    #[test]
+    fn an_spf_pass_for_a_subdomain_aligns() {
+        assert!(authenticated_with(
+            "mx.example.org; spf=pass smtp.mailfrom=bounce@mail.venue.example"
+        ));
+    }
+
+    #[test]
+    fn a_dkim_identity_aligns_and_padding_in_a_value_is_harmless() {
+        assert!(authenticated_with(
+            "mx.example.org; dkim=pass header.i=@venue.example header.s=s1 header.b=Ab+/cd==; \
+             spf=neutral"
+        ));
+    }
+
+    #[test]
+    fn passes_for_other_domains_are_unverified() {
+        assert!(!authenticated_with("mx.example.org; dkim=pass; spf=pass"));
+        assert!(!authenticated_with(
+            "mx.example.org; dkim=pass header.d=mailer.example; spf=pass smtp.mailfrom=mailer.example"
+        ));
+        assert!(!authenticated_with(
+            "mx.example.org; dkim=pass header.d=notvenue.example"
+        ));
+        assert!(!authenticated_with(
+            "mx.example.org; dkim=pass header.d=venue.example.attacker.example"
+        ));
+    }
+
+    #[test]
+    fn a_forged_from_with_attacker_aligned_passes_is_unverified() {
+        assert!(!authenticated_with(
+            "mx.example.org; spf=pass smtp.mailfrom=attacker.example; \
+             dkim=pass header.d=attacker.example; dmarc=fail (p=none) header.from=venue.example"
+        ));
+    }
+
+    #[test]
+    fn a_dmarc_fail_outweighs_an_aligned_pass() {
+        assert!(!authenticated_with(&format!(
+            "mx.example.org; {ALIGNED}; dmarc=fail header.from=venue.example"
+        )));
+    }
+
+    #[test]
+    fn a_dmarc_pass_for_another_from_domain_does_not_count() {
+        assert!(!authenticated_with(
+            "mx.example.org; dkim=pass header.d=attacker.example; \
+             dmarc=pass header.from=attacker.example"
+        ));
+    }
+
+    #[test]
+    fn a_quoted_value_cannot_inject_results() {
+        assert!(!authenticated_with(
+            "mx.example.org; spf=fail smtp.mailfrom=\"x; dkim=pass header.d=venue.example; \
+             spf=pass smtp.mailfrom=venue.example\"@attacker.example; dkim=none"
+        ));
+        let read = results(&tokens(
+            "mx.example.org; spf=fail smtp.mailfrom=\"a; dkim=pass; spf=pass\"@x.example",
+        ))
+        .unwrap();
+        assert_eq!(read.len(), 1);
+        assert_eq!(
+            (read[0].method.as_str(), read[0].result.as_str()),
+            ("spf", "fail")
         );
+        assert_eq!(
+            read[0].prop("smtp.mailfrom"),
+            Some("a; dkim=pass; spf=pass@x.example")
+        );
+    }
+
+    #[test]
+    fn parentheses_inside_quotes_are_not_a_comment() {
+        // Read as a comment, the "(" would hide the dmarc=fail up to the last ")".
+        assert!(!authenticated_with(
+            "mx.example.org; dkim=pass header.d=venue.example header.s=\"s(1\"; \
+             dmarc=fail header.from=venue.example; x=y z=\")\""
+        ));
+        assert!(authenticated_with(
+            "mx.example.org; dkim=pass header.d=venue.example header.s=\"s(1\"; x=y z=\")\""
+        ));
+    }
+
+    #[test]
+    fn an_unclosed_quote_fails_the_whole_header() {
+        assert!(!authenticated_with(&format!(
+            "mx.example.org; {ALIGNED} x=\"open"
+        )));
+        // A receiver header further down does not stand in for the broken one.
+        let m = parse(&format!(
+            "Authentication-Results: mx.example.org; {ALIGNED} x=\"open\n\
+             Authentication-Results: mx.example.org; {ALIGNED}\n{TAIL}"
+        ));
         assert!(!m.authenticated);
     }
 
-    const TAIL: &str = "From: a@venue.example\nSubject: Hi\n\nHello\n";
-
     #[test]
     fn a_forged_header_alone_is_unverified() {
-        let m = parse(&format!(
-            "Authentication-Results: evil.example; dkim=pass; spf=pass\n{TAIL}"
-        ));
-        assert!(!m.authenticated);
+        assert!(!authenticated_with(&format!("evil.example; {ALIGNED}")));
     }
 
     #[test]
     fn the_receivers_header_passes() {
-        let m = parse(&format!(
-            "Authentication-Results: MX.example.org; dkim=pass; spf=pass\n{TAIL}"
-        ));
-        assert!(m.authenticated);
+        assert!(authenticated_with(&format!("MX.example.org; {ALIGNED}")));
     }
 
     #[test]
     fn a_receiver_header_below_a_forged_one_passes() {
         let m = parse(&format!(
-            "Authentication-Results: evil.example; dkim=pass; spf=pass\n\
-             Authentication-Results: mx.example.org; dkim=pass; spf=pass\n{TAIL}"
+            "Authentication-Results: evil.example; {ALIGNED}\n\
+             Authentication-Results: mx.example.org; {ALIGNED}\n{TAIL}"
         ));
         assert!(m.authenticated);
     }
@@ -360,14 +611,14 @@ mod tests {
     fn a_failing_receiver_header_is_not_overridden_by_a_forged_one() {
         let m = parse(&format!(
             "Authentication-Results: mx.example.org; dkim=none; spf=fail\n\
-             Authentication-Results: evil.example; dkim=pass; spf=pass\n{TAIL}"
+             Authentication-Results: evil.example; {ALIGNED}\n{TAIL}"
         ));
         assert!(!m.authenticated);
     }
 
     #[test]
     fn a_configured_authserv_id_differing_from_the_host_works() {
-        let eml = format!("Authentication-Results: mx.google.com; dkim=pass; spf=pass\n{TAIL}")
+        let eml = format!("Authentication-Results: mx.google.com; {ALIGNED}\n{TAIL}")
             .replace('\n', "\r\n");
         let ok = parse_eml(eml.as_bytes(), now(), Some("mx.google.com")).unwrap();
         assert!(ok.authenticated);
@@ -377,7 +628,7 @@ mod tests {
 
     #[test]
     fn no_receiver_means_unverified() {
-        let eml = format!("Authentication-Results: mx.example.org; dkim=pass; spf=pass\n{TAIL}")
+        let eml = format!("Authentication-Results: mx.example.org; {ALIGNED}\n{TAIL}")
             .replace('\n', "\r\n");
         assert!(
             !parse_eml(eml.as_bytes(), now(), None)
@@ -387,15 +638,11 @@ mod tests {
     }
 
     #[test]
-    fn a_pass_word_inside_a_comment_does_not_count() {
-        let m = parse(
-            "Authentication-Results: mx.example.org; dkim=fail (was dkim=pass); spf=pass\n\
-             From: a@venue.example\n\
-             Subject: Hi\n\
-             \n\
-             Hello\n",
-        );
-        assert!(!m.authenticated);
+    fn a_pass_inside_a_comment_does_not_count() {
+        assert!(!authenticated_with(
+            "mx.example.org; dkim=fail (was; dkim=pass header.d=venue.example) \
+             header.d=venue.example; spf=softfail smtp.mailfrom=venue.example"
+        ));
     }
 
     #[test]

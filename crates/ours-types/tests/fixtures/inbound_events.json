@@ -1,0 +1,145 @@
+{
+  "ready": {
+    "type": "ready",
+    "platform": "discord",
+    "me": "U1",
+    "me_name": "Noa",
+    "capabilities": {
+      "reactions": true,
+      "threads": true,
+      "polls": true,
+      "dms": true,
+      "edit": true,
+      "delete": true,
+      "pin": true,
+      "history": true,
+      "timezones": false,
+      "external_flag": false,
+      "typing": true,
+      "reaction_set": ["👍", "✅"]
+    }
+  },
+  "room_sync": {
+    "type": "room_sync",
+    "room": {
+      "platform": "slack",
+      "id": "C1",
+      "name": "general",
+      "kind": "thread",
+      "parent": "C0",
+      "container": "T1"
+    },
+    "members": [
+      {
+        "id": "U2",
+        "display_name": "Sam",
+        "platform_role": "external",
+        "is_bot": false,
+        "timezone": "Europe/Lisbon"
+      }
+    ]
+  },
+  "message": {
+    "type": "message",
+    "id": "M1",
+    "room": "C1",
+    "author": "U2",
+    "text": "hello",
+    "at": "2026-11-05T10:00:00Z",
+    "reply_to": "M0",
+    "mentions": ["U1"],
+    "mentions_me": true,
+    "attachments": [{ "kind": "image", "url": "https://example.com/a.png", "name": "a.png" }],
+    "edited": false
+  },
+  "message_edited": {
+    "type": "message_edited",
+    "id": "M1",
+    "room": "C1",
+    "author": "U2",
+    "text": "hello again",
+    "at": "2026-11-05T10:00:00Z",
+    "reply_to": null,
+    "mentions": [],
+    "mentions_me": false,
+    "attachments": [],
+    "edited": true
+  },
+  "message_deleted": { "type": "message_deleted", "room": "C1", "id": "M1" },
+  "reaction_added": {
+    "type": "reaction_added",
+    "room": "C1",
+    "message": "M1",
+    "user": "U2",
+    "emoji": "✅",
+    "at": "2026-11-05T10:01:00Z"
+  },
+  "reaction_removed": {
+    "type": "reaction_removed",
+    "room": "C1",
+    "message": "M1",
+    "user": "U2",
+    "emoji": "✅",
+    "at": "2026-11-05T10:02:00Z"
+  },
+  "member_joined": {
+    "type": "member_joined",
+    "room": "C1",
+    "member": {
+      "id": "U3",
+      "display_name": "Jo",
+      "platform_role": "admin",
+      "is_bot": false,
+      "timezone": null
+    },
+    "at": "2026-11-05T10:03:00Z"
+  },
+  "member_left": { "type": "member_left", "room": "C1", "user": "U3", "at": "2026-11-05T10:04:00Z" },
+  "member_updated": {
+    "type": "member_updated",
+    "room": "C1",
+    "member": {
+      "id": "U3",
+      "display_name": "Jo B",
+      "platform_role": "regular",
+      "is_bot": true,
+      "timezone": null
+    }
+  },
+  "action_result": {
+    "type": "action_result",
+    "id": "A1",
+    "ok": false,
+    "message": "M2",
+    "error": "rate limited"
+  },
+  "poll_vote": {
+    "type": "poll_vote",
+    "room": "C1",
+    "message": "M3",
+    "user": "U2",
+    "option": 1,
+    "added": true,
+    "at": "2026-11-05T10:05:00Z"
+  },
+  "poll_ended": { "type": "poll_ended", "room": "C1", "message": "M3", "counts": [2, 0, 1] },
+  "history": {
+    "type": "history",
+    "room": "C1",
+    "messages": [
+      {
+        "id": "M0",
+        "room": "C1",
+        "author": "U2",
+        "text": "earlier",
+        "at": "2026-11-04T09:00:00Z",
+        "reply_to": null,
+        "mentions": [],
+        "mentions_me": false,
+        "attachments": [],
+        "edited": false
+      }
+    ]
+  },
+  "disconnected": { "type": "disconnected", "platform": "telegram", "reason": "token revoked" }
+}

@@ -3,6 +3,7 @@ use std::sync::{Arc, Mutex, MutexGuard};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use ours_types::GroupId;
+use tracing::warn;
 
 use crate::ModelError;
 
@@ -51,10 +52,20 @@ impl SpendMeter {
         })
     }
 
-    /// A meter reading the time, as Unix seconds, from `clock`.
+    /// A meter reading the time, as Unix seconds, from `clock`. A cap that is
+    /// not a finite number is taken as zero, so it blocks every call.
     pub fn with_clock(cap_dollars: f64, clock: impl Fn() -> i64 + Send + Sync + 'static) -> Self {
+        let cap = if cap_dollars.is_finite() {
+            cap_dollars
+        } else {
+            warn!(
+                cap = cap_dollars,
+                "daily cap is not a finite number, so no model call is allowed"
+            );
+            0.0
+        };
         Self {
-            cap: cap_dollars,
+            cap,
             clock: Arc::new(clock),
             spent: Mutex::new(HashMap::new()),
         }
@@ -173,6 +184,15 @@ mod tests {
         meter.record(&group("a"), f64::NAN);
         meter.record(&group("a"), f64::INFINITY);
         assert_eq!(meter.spent_today(&group("a")), 0.0);
+    }
+
+    #[test]
+    fn a_cap_that_is_not_a_number_blocks_every_call() {
+        for cap in [f64::NAN, f64::INFINITY, f64::NEG_INFINITY] {
+            let meter = SpendMeter::new(cap);
+            assert_eq!(meter.cap(), 0.0, "{cap}");
+            assert!(meter.check(&group("a")).is_err(), "{cap}");
+        }
     }
 
     #[test]

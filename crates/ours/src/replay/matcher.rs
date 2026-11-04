@@ -377,7 +377,8 @@ impl Matcher {
     }
 
     /// The fold's armed timer for a logged one: by id as for the others, else
-    /// the one that fell due most recently.
+    /// the one that fell due most recently, the lowest id among equals since
+    /// the runner fires ties in id order.
     fn timer(&self, logged: &TimerId, at: Instant, state: &GroupState) -> Option<TimerId> {
         let armed = &state.timers;
         self.aligned(logged.as_str())
@@ -388,7 +389,7 @@ impl Matcher {
                 armed
                     .iter()
                     .filter(|(_, t)| t.at <= at.plus_seconds(EARLY_SECONDS))
-                    .max_by(|a, b| (a.1.at, a.0).cmp(&(b.1.at, b.0)))
+                    .max_by(|a, b| a.1.at.cmp(&b.1.at).then_with(|| b.0.cmp(a.0)))
                     .map(|(id, _)| id.clone())
             })
     }
@@ -472,4 +473,40 @@ fn produces(action: &OutboundAction) -> bool {
             | OutboundAction::SendDm { .. }
             | OutboundAction::CreatePoll { .. }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use ours_core::{Timer, TimerPurpose};
+    use ours_types::Kind;
+
+    #[test]
+    fn an_unmatched_timer_goes_to_the_first_of_those_due_together() {
+        let group = GroupId::new("g");
+        let mut state = GroupState::new(group.clone(), Kind::Friends);
+        let at = Instant::from_millis(1_000_000).unwrap();
+        for (id, due) in [("b", at), ("a", at), ("c", at.plus_seconds(-60))] {
+            state.timers.insert(
+                TimerId::new(id),
+                Timer {
+                    at: due,
+                    purpose: TimerPurpose::Retention,
+                },
+            );
+        }
+        let mut matcher = Matcher::new(group);
+        let fired = |matcher: &mut Matcher, state: &GroupState| {
+            let input = Input::TimerFired {
+                id: TimerId::new("from-the-log"),
+            };
+            match matcher.translate(at, input, state).input {
+                Some(Input::TimerFired { id }) => id,
+                other => panic!("expected a timer, got {other:?}"),
+            }
+        };
+        assert_eq!(fired(&mut matcher, &state), TimerId::new("a"));
+        state.timers.remove(&TimerId::new("a"));
+        assert_eq!(fired(&mut matcher, &state), TimerId::new("b"));
+    }
 }

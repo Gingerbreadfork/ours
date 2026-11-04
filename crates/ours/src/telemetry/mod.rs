@@ -46,8 +46,9 @@
 //! ```
 //!
 //! - `host`: a random id made once per host, 16 hex characters.
-//! - `group`: the first 16 hex characters of SHA-256 over the host id
-//!   followed by the group id, so groups cannot be matched across hosts.
+//! - `group`: the first 16 hex characters of SHA-256 over a random salt
+//!   followed by the group id. The salt stays in the group's store, so the
+//!   tag cannot be traced back to the group or matched across hosts.
 //! - `kind`: friends, household, team, project, club, community, committee
 //!   or cohort. `dial` is the persona dial, 0 to 3.
 //! - `at_hour_utc`: the hour the message was scored, 0 to 23.
@@ -88,6 +89,9 @@ pub const WINDOW_HOURS: u8 = 24;
 pub const HOST_ID_KEY: &str = "telemetry_host_id";
 /// The group store's key for the last seq whose records were flushed.
 pub const SEQ_KEY: &str = "telemetry_seq";
+/// The group store's key for the random salt behind the group tag. The salt
+/// is never sent.
+pub const GROUP_SALT_KEY: &str = "telemetry_group_salt";
 
 const POST_TIMEOUT: Duration = Duration::from_secs(30);
 
@@ -198,8 +202,9 @@ pub fn collect_at(
     }
     let host = host_id(store, group)?;
     let log: Arc<dyn EventLog> = store.open_group(group)?;
+    let salt = group_salt(log.as_ref())?;
     let mut start = fold::start(log.as_ref(), group, None, since_seq + 1)?;
-    let mut join = join::Join::new(host.clone(), group_hash(&host, group), since_seq);
+    let mut join = join::Join::new(host, group_tag(&salt, group), since_seq);
     let mut last = start.seq.max(since_seq);
     let mut next = Some(start.seq + 1);
     while let Some(from) = next {
@@ -414,9 +419,28 @@ fn valid_host_id(bytes: Option<Vec<u8>>) -> Option<String> {
     (id.len() == 16 && id.bytes().all(|b| b.is_ascii_hexdigit())).then_some(id)
 }
 
-fn group_hash(host: &str, group: &GroupId) -> String {
+/// The group's salt, made the first time it is needed: 160 random bits as hex.
+fn group_salt(log: &dyn EventLog) -> Result<String, StoreError> {
+    let kept = log
+        .get(GROUP_SALT_KEY)?
+        .and_then(|bytes| String::from_utf8(bytes).ok())
+        .filter(|s| s.len() == 40 && s.bytes().all(|b| b.is_ascii_hexdigit()));
+    if let Some(salt) = kept {
+        return Ok(salt);
+    }
+    // A ULID's low 80 bits are random.
+    let salt = format!(
+        "{:020x}{:020x}",
+        ulid::Ulid::generate().random(),
+        ulid::Ulid::generate().random()
+    );
+    log.set(GROUP_SALT_KEY, salt.as_bytes())?;
+    Ok(salt)
+}
+
+fn group_tag(salt: &str, group: &GroupId) -> String {
     let digest = Sha256::new()
-        .chain_update(host.as_bytes())
+        .chain_update(salt.as_bytes())
         .chain_update(group.as_str().as_bytes())
         .finalize();
     digest.iter().take(8).map(|b| format!("{b:02x}")).collect()

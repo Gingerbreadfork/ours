@@ -6,8 +6,8 @@
 use ours::config::TelemetrySection;
 use ours::runtime::journal::Journal;
 use ours::telemetry::{
-    Acted, HOST_ID_KEY, Record, SEQ_KEY, TelemetryError, collect, collect_at, flush, job, job_once,
-    sample,
+    Acted, GROUP_SALT_KEY, HOST_ID_KEY, Record, SEQ_KEY, TelemetryError, collect, collect_at,
+    flush, job, job_once, sample,
 };
 use ours_core::sim::{ClassifierScript, ME, ModelScript, START, Sim, banter, plan};
 use ours_core::{Command, GroupState, Input, Profile, SettingChange};
@@ -16,6 +16,7 @@ use ours_types::{
     ActionId, Capabilities, GroupId, InboundEvent, Instant, Kind, MessageKind, Platform,
     PlatformRole, PlatformUserId, RequestId, TimerId,
 };
+use sha2::{Digest, Sha256};
 use std::path::Path;
 use std::sync::Arc;
 use std::time::Duration;
@@ -300,11 +301,15 @@ fn a_journal_whose_ids_are_off_by_one_gives_the_same_records() {
 
     let offset_dir = tempfile::tempdir().unwrap();
     let offset = write_offset_journal(offset_dir.path(), &sim);
-    offset
+    let salt = plain
         .open_group(&group)
         .unwrap()
-        .set(HOST_ID_KEY, expected[0].host.as_bytes())
+        .get(GROUP_SALT_KEY)
+        .unwrap()
         .unwrap();
+    let log = offset.open_group(&group).unwrap();
+    log.set(HOST_ID_KEY, expected[0].host.as_bytes()).unwrap();
+    log.set(GROUP_SALT_KEY, &salt).unwrap();
     let (records, end) = collect_at(&offset, &group, 0, later()).unwrap();
     assert_eq!(records, expected);
     assert_eq!(end, covered);
@@ -376,6 +381,50 @@ fn the_host_id_is_made_once_and_shared_by_the_hosts_groups() {
         journal.append(input, *at).unwrap();
     }
     let (theirs, _) = collect_at(&store, &other, 0, later()).unwrap();
+    assert_eq!(theirs[0].host, first[0].host);
+    assert_ne!(theirs[0].group, first[0].group);
+}
+
+#[test]
+fn the_group_tag_rests_on_a_salt_that_never_leaves_the_host() {
+    let sim = evening();
+    let dir = tempfile::tempdir().unwrap();
+    let store = write_journal(dir.path(), &sim);
+    let group = GroupId::new(GROUP);
+    let (first, _) = collect_at(&store, &group, 0, later()).unwrap();
+    let salt = store
+        .open_group(&group)
+        .unwrap()
+        .get(GROUP_SALT_KEY)
+        .unwrap()
+        .expect("the salt is kept in the group's store");
+    let salt = String::from_utf8(salt).unwrap();
+    assert_eq!(salt.len(), 40);
+    let json = serde_json::to_string(&first).unwrap();
+    assert!(!json.contains(&salt));
+
+    // The tag is stable, and a guess from what a record carries misses it.
+    let (again, _) = collect_at(&store, &group, 0, later()).unwrap();
+    assert_eq!(again[0].group, first[0].group);
+    let guess: String = Sha256::new()
+        .chain_update(first[0].host.as_bytes())
+        .chain_update(GROUP.as_bytes())
+        .finalize()
+        .iter()
+        .take(8)
+        .map(|b| format!("{b:02x}"))
+        .collect();
+    assert_ne!(first[0].group, guess);
+
+    // The same group id on another host gets another tag.
+    let other_dir = tempfile::tempdir().unwrap();
+    let other = write_journal(other_dir.path(), &sim);
+    other
+        .open_group(&group)
+        .unwrap()
+        .set(HOST_ID_KEY, first[0].host.as_bytes())
+        .unwrap();
+    let (theirs, _) = collect_at(&other, &group, 0, later()).unwrap();
     assert_eq!(theirs[0].host, first[0].host);
     assert_ne!(theirs[0].group, first[0].group);
 }
@@ -503,6 +552,7 @@ async fn nothing_is_written_or_sent_while_telemetry_is_off() {
     let log = store.open_group(&group).unwrap();
     assert_eq!(log.get(SEQ_KEY).unwrap(), None);
     assert_eq!(log.get(HOST_ID_KEY).unwrap(), None);
+    assert_eq!(log.get(GROUP_SALT_KEY).unwrap(), None);
 }
 
 #[tokio::test]

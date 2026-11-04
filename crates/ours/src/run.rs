@@ -24,14 +24,19 @@ use std::collections::HashMap;
 use std::net::{IpAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::time::Duration;
 use tokio::sync::{mpsc, watch};
+use tokio::task::JoinHandle;
+
+/// How long a stop waits for the groups to snapshot.
+const SHUTDOWN_GRACE: Duration = Duration::from_secs(10);
 
 pub async fn run(config: Config) -> anyhow::Result<()> {
     let store = Arc::new(StoreDir::open(&config.host.data_dir)?);
     let hub = AdminHub::new();
 
-    let (model, dialect) = build_model(&config)?;
-    let (classifier, extractor, resolver) = build_small_models(&config, &model, dialect)?;
+    let (model, dialect, meter) = build_model(&config)?;
+    let (classifier, extractor, resolver) = build_small_models(&config, &model, dialect, &meter)?;
     let (mailer, inbox) = build_mail(&config)?;
     hub.set_catalogue(
         ours_core::catalogue()
@@ -66,6 +71,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     let mut outbound: HashMap<Platform, mpsc::Sender<Outbound>> = HashMap::new();
     let mut inbound: Vec<(Platform, mpsc::Receiver<InboundEvent>)> = Vec::new();
     let mut tasks = Vec::new();
+    // The group runners, kept apart so a stop can wait for their snapshots.
+    let mut groups = Vec::new();
     for section in &config.connectors {
         let connector: Box<dyn Connector> = match section.platform {
             Platform::Discord => Box::new(DiscordConnector::new(DiscordConfig {
@@ -134,15 +141,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         pending.push((id, section, rooms, tx, rx));
     }
     let router = Arc::new(router);
+    let label = model_label(&config);
 
     for (id, section, rooms, tx, rx) in pending {
         let journal = Journal::new(store.open_group(&id)?);
         let feed_secret = journal.feed_secret()?;
         hub.set_feed_secret(&id, feed_secret.clone());
-        let feed_base = format!(
-            "{}/ics/{id}/{feed_secret}",
-            public_base.trim_end_matches('/')
-        );
         let desired = Desired {
             name: section.name.clone(),
             kind: section.kind,
@@ -151,10 +155,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             leads: section.leads.clone(),
             hosts: section.hosts.clone(),
             rooms,
-            model_label: format!(
-                "{}, running locally on the host's machine",
-                config.model.model
-            ),
+            model_label: label.clone(),
             dial: section.dial,
             voice: section.voice.clone(),
             currency: section.currency.clone(),
@@ -163,7 +164,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             never_jokes_about: section.never_jokes_about.clone(),
             persona: section.persona.clone(),
             legal_hold: section.legal_hold,
-            feed_base: Some(feed_base),
+            feed_base: Some(feed_base(&public_base, &id, &feed_secret)),
         };
         let (wipe_tx, wipe_rx) = mpsc::channel(1);
         hub.set_controls(&id, tx.clone(), wipe_tx);
@@ -212,21 +213,16 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         let store = Arc::clone(&store);
         let hub = hub.clone();
         let data_dir = config.host.data_dir.clone();
-        tasks.push(tokio::spawn(async move {
+        let public_base = public_base.clone();
+        groups.push(tokio::spawn(async move {
             let mut runner = runner;
+            let mut desired = desired;
             loop {
                 match runner.run(shutdown.clone()).await {
                     Ok(RunEnd::Shutdown) => break,
                     Ok(RunEnd::Wiped { inputs, wipes, done }) => {
                         // The runner is gone, and with it every handle on the file.
-                        let fresh: Result<Journal<Input, GroupState>, String> =
-                            wipe_group(&store, &hub, &data_dir, &id).and_then(|()| {
-                                store
-                                    .open_group(&id)
-                                    .map(|log| Journal::new(log))
-                                    .map_err(|e| e.to_string())
-                            });
-                        let journal = match fresh {
+                        let journal = match start_over(&store, &hub, &data_dir, &id, &public_base, &mut desired) {
                             Ok(journal) => journal,
                             Err(error) => {
                                 tracing::error!(group = %id, %error, "wipe failed; the group is down");
@@ -234,9 +230,6 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                                 break;
                             }
                         };
-                        if let Ok(secret) = journal.feed_secret() {
-                            hub.set_feed_secret(&id, secret);
-                        }
                         match GroupRunner::recover(id.clone(), desired.clone(), again.wiring(journal, inputs, wipes)).await {
                             Ok(next) => {
                                 tracing::warn!(group = %id, "wiped and started fresh");
@@ -267,7 +260,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .mail
             .as_ref()
             .and_then(|m| m.imap.as_ref())
-            .map_or(std::time::Duration::from_secs(60), |i| i.interval());
+            .map_or(Duration::from_secs(60), |i| i.interval());
         tasks.push(tokio::spawn(ours_mail::poll_loop(inbox, every, mail_tx)));
         let queues: Vec<mpsc::Sender<Input>> = group_queues.clone();
         let own = config.mail.as_ref().map(|m| address_in(&m.from));
@@ -302,7 +295,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .iter()
             .map(|g| GroupId::new(g.id.clone()))
             .collect(),
-        std::time::Duration::from_secs(3600),
+        Duration::from_secs(3600),
     )));
 
     hub.set_store(Arc::clone(&store));
@@ -334,20 +327,35 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         _ = tripped.changed() => tracing::error!("stopping because a connector stopped"),
     }
     let _ = shutdown_tx.send(true);
-    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-        for task in tasks {
-            let _ = task.await;
-        }
-    })
-    .await;
+    stop(groups, tasks, SHUTDOWN_GRACE).await;
     if connector_died.load(std::sync::atomic::Ordering::SeqCst) {
         anyhow::bail!("a connector stopped; exiting so a supervisor restarts the agent");
     }
     Ok(())
 }
 
-/// The large-model client exactly as `run` uses it, and its dialect.
-pub fn build_model(config: &Config) -> anyhow::Result<(Arc<dyn LargeModel>, Dialect)> {
+/// Waits up to `grace` for the group runners, which snapshot as they stop,
+/// then aborts every other task, such as the connectors and the admin page.
+async fn stop(groups: Vec<JoinHandle<()>>, rest: Vec<JoinHandle<()>>, grace: Duration) {
+    let waited = tokio::time::timeout(grace, async {
+        for task in groups {
+            let _ = task.await;
+        }
+    })
+    .await;
+    if waited.is_err() {
+        tracing::warn!("a group did not stop in time");
+    }
+    for task in rest {
+        task.abort();
+    }
+}
+
+/// The large-model client exactly as `run` uses it, its dialect, and the
+/// spend meter it charges, which the small models share.
+pub fn build_model(
+    config: &Config,
+) -> anyhow::Result<(Arc<dyn LargeModel>, Dialect, Arc<SpendMeter>)> {
     let meter = Arc::new(SpendMeter::new(config.model.daily_cap_usd));
     let dialect = match config.model.dialect {
         ModelDialect::OpenAi => Dialect::OpenAi,
@@ -360,18 +368,21 @@ pub fn build_model(config: &Config) -> anyhow::Result<(Arc<dyn LargeModel>, Dial
     model_config.dialect = dialect;
     model_config.timeout_secs = config.model.timeout_secs;
     model_config.extra = config.model.extra.clone();
-    let model: Arc<dyn LargeModel> = Arc::new(OpenAiCompatible::new(model_config, meter)?);
-    Ok((model, dialect))
+    let model: Arc<dyn LargeModel> =
+        Arc::new(OpenAiCompatible::new(model_config, Arc::clone(&meter))?);
+    Ok((model, dialect, meter))
 }
 
 /// The classifier, the extractor and the time resolver, all on the small model: the `[model]`
 /// endpoint unless the `[classifier]` section points elsewhere, or the rules
-/// pass and no extraction when it is disabled.
+/// pass and no extraction when it is disabled. Both endpoints charge `meter`,
+/// so the daily cap is one cap.
 #[allow(clippy::type_complexity)]
 pub fn build_small_models(
     config: &Config,
     model: &Arc<dyn LargeModel>,
     dialect: Dialect,
+    meter: &Arc<SpendMeter>,
 ) -> anyhow::Result<(
     Arc<dyn Classifier>,
     Arc<dyn Extractor>,
@@ -414,8 +425,7 @@ pub fn build_small_models(
             .extra
             .clone()
             .unwrap_or_else(|| config.model.extra.clone());
-        let meter = Arc::new(SpendMeter::new(config.model.daily_cap_usd));
-        Arc::new(OpenAiCompatible::new(model_config, meter)?)
+        Arc::new(OpenAiCompatible::new(model_config, Arc::clone(meter))?)
     };
     Ok((
         Arc::new(SmallModelClassifier::new(Arc::clone(&small))),
@@ -428,7 +438,7 @@ pub fn build_small_models(
 /// engine's plan schema and returns the plan, so a host can prove the
 /// endpoint works before adding the bot to a room.
 pub async fn model_check(config: &Config) -> anyhow::Result<ours_core::Plan> {
-    let (model, dialect) = build_model(config)?;
+    let (model, dialect, _) = build_model(config)?;
     let request = ours_core::ModelRequest {
         id: ours_types::RequestId::new("model-check"),
         system: "You are Q, a member of a friends group chat called The Six. Plain text, two lines at most.".to_owned(),
@@ -572,22 +582,106 @@ pub fn wipe_group(
     Ok(())
 }
 
+/// Wipes the group and opens its fresh journal. The fresh journal has a new
+/// calendar secret, so the page and the feed base move to it.
+fn start_over(
+    store: &StoreDir,
+    hub: &AdminHub,
+    data_dir: &Path,
+    id: &GroupId,
+    public_base: &str,
+    desired: &mut Desired,
+) -> Result<Journal<Input, GroupState>, String> {
+    wipe_group(store, hub, data_dir, id)?;
+    let journal = Journal::new(store.open_group(id).map_err(|e| e.to_string())?);
+    let secret = journal.feed_secret().map_err(|e| e.to_string())?;
+    hub.set_feed_secret(id, secret.clone());
+    desired.feed_base = Some(feed_base(public_base, id, &secret));
+    Ok(journal)
+}
+
+/// The group's calendar feed base, `<url>/ics/<group>/<secret>`.
+fn feed_base(public_base: &str, id: &GroupId, secret: &str) -> String {
+    format!("{}/ics/{id}/{secret}", public_base.trim_end_matches('/'))
+}
+
+/// Where a model endpoint runs, judged from its URL.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Endpoint {
+    /// Loopback: the host's own machine.
+    Machine,
+    /// A private or link-local address: the host's own network.
+    Network,
+    /// Anywhere else, with the URL's host when it has one.
+    Hosted(Option<String>),
+}
+
+impl Endpoint {
+    fn of(base_url: &str) -> Endpoint {
+        let Some(host) = reqwest::Url::parse(base_url)
+            .ok()
+            .and_then(|u| u.host_str().map(str::to_owned))
+        else {
+            return Endpoint::Hosted(None);
+        };
+        // An IPv6 host comes back in brackets.
+        let ip = host
+            .trim_start_matches('[')
+            .trim_end_matches(']')
+            .parse::<IpAddr>();
+        if host == "localhost" || ip.as_ref().is_ok_and(IpAddr::is_loopback) {
+            return Endpoint::Machine;
+        }
+        let private = ip.is_ok_and(|ip| match ip {
+            IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
+            IpAddr::V6(v6) => v6.is_unique_local() || v6.is_unicast_link_local(),
+        });
+        if private {
+            Endpoint::Network
+        } else {
+            Endpoint::Hosted(Some(host))
+        }
+    }
+
+    fn is_local(&self) -> bool {
+        !matches!(self, Endpoint::Hosted(_))
+    }
+
+    /// How a member is told where `model` runs.
+    fn describe(&self, model: &str) -> String {
+        match self {
+            Endpoint::Machine => format!("{model}, running locally on the host's machine"),
+            Endpoint::Network => format!("{model}, running on the host's own network"),
+            Endpoint::Hosted(Some(host)) => format!("{model}, hosted at {host}"),
+            Endpoint::Hosted(None) => format!("{model}, hosted elsewhere"),
+        }
+    }
+}
+
+/// The label the pinned message, the charter and the prompt carry: where
+/// the model runs, and the small model too when it is hosted somewhere
+/// else, since it reads every message.
+fn model_label(config: &Config) -> String {
+    let main = Endpoint::of(&config.model.base_url);
+    let mut label = main.describe(&config.model.model);
+    let section = &config.classifier;
+    if section.enabled
+        && let Some(url) = &section.base_url
+    {
+        let small = Endpoint::of(url);
+        if !small.is_local() && small != main {
+            let name = section.model.as_deref().unwrap_or(&config.model.model);
+            label.push_str("; triage on ");
+            label.push_str(&small.describe(name));
+        }
+    }
+    label
+}
+
 /// What the compliance page states about this host, from the configuration.
 fn host_facts(config: &Config) -> ours_admin::HostFacts {
     let endpoint = config.model.base_url.clone();
-    let local = reqwest::Url::parse(&endpoint)
-        .ok()
-        .and_then(|u| u.host_str().map(str::to_owned))
-        .is_some_and(|h| {
-            h == "localhost"
-                || h.parse::<IpAddr>().is_ok_and(|ip| {
-                    ip.is_loopback()
-                        || match ip {
-                            IpAddr::V4(v4) => v4.is_private() || v4.is_link_local(),
-                            IpAddr::V6(v6) => v6.is_unique_local() || v6.is_unicast_link_local(),
-                        }
-                })
-        });
+    let local = Endpoint::of(&endpoint).is_local();
     ours_admin::HostFacts {
         version: crate::VERSION.to_owned(),
         data_dir: config.host.data_dir.display().to_string(),
@@ -631,6 +725,161 @@ mod address_tests {
         assert_ne!(
             address_in("Ours <ours@example.org>"),
             address_in("rum@example.org")
+        );
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use tokio::sync::oneshot;
+
+    fn config(model_url: &str, small_url: Option<&str>) -> Config {
+        let classifier = small_url.map_or(String::new(), |url| {
+            format!("[classifier]\nbase_url = \"{url}\"\nmodel = \"s\"\n")
+        });
+        toml::from_str(&format!(
+            "[host]\n[model]\nbase_url = \"{model_url}\"\nmodel = \"m\"\n{classifier}"
+        ))
+        .unwrap()
+    }
+
+    #[test]
+    fn the_label_says_where_the_model_runs() {
+        let label = |url: &str, small: Option<&str>| model_label(&config(url, small));
+        let machine = "m, running locally on the host's machine";
+        assert_eq!(label("http://localhost:8080/v1", None), machine);
+        assert_eq!(label("http://127.0.0.1:8080/v1", None), machine);
+        assert_eq!(label("http://[::1]:8080/v1", None), machine);
+        assert_eq!(
+            label("http://192.168.1.20:8080/v1", None),
+            "m, running on the host's own network"
+        );
+        assert_eq!(
+            label("https://api.openai.com/v1", None),
+            "m, hosted at api.openai.com"
+        );
+        assert_eq!(
+            label(
+                "http://localhost:8080/v1",
+                Some("https://small.example.com/v1")
+            ),
+            format!("{machine}; triage on s, hosted at small.example.com")
+        );
+        assert_eq!(
+            label(
+                "https://api.example.com/v1",
+                Some("https://api.example.com/v2")
+            ),
+            "m, hosted at api.example.com"
+        );
+        assert_eq!(
+            label("http://localhost:8080/v1", Some("http://10.0.0.5/v1")),
+            machine
+        );
+    }
+
+    #[test]
+    fn the_compliance_page_agrees_with_the_label() {
+        for (url, local) in [
+            ("http://[::1]:8080/v1", true),
+            ("http://10.0.0.5/v1", true),
+            ("https://api.openai.com/v1", false),
+        ] {
+            assert_eq!(host_facts(&config(url, None)).model.local, local, "{url}");
+        }
+    }
+
+    #[tokio::test]
+    async fn a_classifier_on_its_own_endpoint_shares_the_daily_cap() {
+        // Nothing listens on port 9; a call that got past the meter would fail to connect.
+        let config = config("http://127.0.0.1:9/v1", Some("http://127.0.0.1:9/small/v1"));
+        let (model, dialect, meter) = build_model(&config).unwrap();
+        let (classifier, _, _) = build_small_models(&config, &model, dialect, &meter).unwrap();
+        let group = GroupId::new("g");
+        meter.record(&group, config.model.daily_cap_usd * 2.0);
+        let request = ours_types::ClassifyRequest {
+            room: "general".into(),
+            message: "m1".into(),
+            agent_name: "Q".into(),
+            speaker: "Sam".into(),
+            text: "thursday works".into(),
+            context: Vec::new(),
+            open_items: Vec::new(),
+            rules: ours_types::Score::default(),
+        };
+        let error = classifier.classify(&group, request).await.unwrap_err();
+        assert!(
+            matches!(error, ours_model::ModelError::CapExceeded { .. }),
+            "{error}"
+        );
+    }
+
+    #[test]
+    fn a_wipe_moves_the_feed_base_to_the_fresh_secret() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = StoreDir::open(dir.path()).unwrap();
+        let id = GroupId::new("the-six");
+        let old = Journal::<Input, GroupState>::new(store.open_group(&id).unwrap())
+            .feed_secret()
+            .unwrap();
+        let base = "https://ours.example.org/";
+        let mut desired = Desired {
+            name: "The Six".into(),
+            kind: ours_types::Kind::Friends,
+            agent_name: None,
+            timezone: "UTC".into(),
+            leads: Vec::new(),
+            hosts: Vec::new(),
+            rooms: Vec::new(),
+            model_label: String::new(),
+            dial: None,
+            voice: None,
+            currency: "USD".into(),
+            traits: Vec::new(),
+            bits: Vec::new(),
+            never_jokes_about: Vec::new(),
+            persona: None,
+            legal_hold: false,
+            feed_base: Some(feed_base(base, &id, &old)),
+        };
+        let journal = start_over(
+            &store,
+            &AdminHub::new(),
+            dir.path(),
+            &id,
+            base,
+            &mut desired,
+        )
+        .unwrap();
+        let fresh = journal.feed_secret().unwrap();
+        assert_ne!(fresh, old);
+        assert_eq!(
+            desired.feed_base,
+            Some(format!("https://ours.example.org/ics/the-six/{fresh}"))
+        );
+    }
+
+    #[tokio::test]
+    async fn a_stop_waits_for_the_groups_and_aborts_the_rest() {
+        let (snapshot_tx, snapshot) = oneshot::channel();
+        let group = tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            let _ = snapshot_tx.send(());
+        });
+        let (alive, gone) = oneshot::channel::<()>();
+        let connector = tokio::spawn(async move {
+            let _alive = alive;
+            std::future::pending::<()>().await;
+        });
+        let started = std::time::Instant::now();
+        stop(vec![group], vec![connector], Duration::from_secs(30)).await;
+        assert!(started.elapsed() < Duration::from_secs(10));
+        assert!(snapshot.await.is_ok(), "the group finished its snapshot");
+        let dropped = tokio::time::timeout(Duration::from_secs(5), gone).await;
+        assert!(
+            matches!(dropped, Ok(Err(_))),
+            "the connector task was aborted"
         );
     }
 }

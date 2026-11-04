@@ -8,16 +8,17 @@ use ours::replay::{
     DivergenceKind, Oracle, ReplayError, ReplayOptions, Tally, render_markdown, replay,
 };
 use ours::runtime::journal::Journal;
-use ours_core::sim::{ClassifierScript, ME, ModelScript, Sim, banter, plan};
+use ours_core::sim::{ClassifierScript, ME, ModelScript, Sim, TimeScript, banter, instant, plan};
 use ours_core::{Command, Effect, GroupState, Input, Profile, SettingChange, step};
 use ours_model::{
     ChatRequest, ChatResponse, Classifier, LargeModel, ModelError, NoExtractor, NoTimeResolver,
-    Usage,
+    TimeResolver, Usage,
 };
 use ours_store::{EventLog, StoreDir};
 use ours_types::{
     ActionId, Capabilities, ClassifyRequest, GroupId, InboundEvent, Kind, OutboundAction, Platform,
-    PlatformRole, PlatformUserId, RequestId, Score, ScoreSource, TimerId,
+    PlatformRole, PlatformUserId, RequestId, Score, ScoreSource, TimeMeaning, TimeRequest,
+    TimeResolution, TimerId,
 };
 use serde_json::json;
 use std::sync::Arc;
@@ -30,6 +31,41 @@ const DIFFERENT: &str = "Something else entirely.";
 
 /// The dinner group's evening, as the engine lived it.
 fn evening() -> Sim {
+    let mut sim = dinner();
+    sim.model_says("Thursday works for four of you.");
+    sim.say("dinner", "jo", "Q, what do you reckon?");
+    sim.advance(60);
+    sim.say("dinner", "priya", "Hobson's, half seven, thursday");
+    sim.advance(60);
+
+    sim.classify(ClassifierScript::Answerable);
+    let question = sim.say("dinner", "sam", "what time was it again?").id;
+    sim.advance(WINDOW);
+    sim.model_says("Half seven at Hobson's.");
+    sim.react("dinner", &question, "jo", "👍");
+    let answer = sim.last_sent_message().unwrap();
+    sim.react("dinner", &answer, "alex", "❤️");
+
+    sim.advance(HOUR);
+    sim.feed(Input::Command(Command::ChangeSetting {
+        change: SettingChange::DialTo { dial: 2 },
+    }));
+    sim.script(ModelScript::Reply(plan("Called it.")));
+    sim.classify(ClassifierScript::Score(banter(0.9)));
+    sim.say("dinner", "sam", "WE GOT THE HOUSE");
+    let chime = sim.last_sent_message().unwrap();
+    sim.react("dinner", &chime, "priya", "🤫");
+
+    sim.advance(60);
+    sim.model_says("Bring a jacket.");
+    sim.say("dinner", "priya", "Q, what should I bring?");
+    sim.advance(60);
+    sim.say("dinner", "alex", "lol");
+    sim
+}
+
+/// The dinner group's room on Discord, ready, with nothing said yet.
+fn dinner() -> Sim {
     let mut sim = Sim::with_state(GroupState::new(GroupId::new(GROUP), Kind::Friends));
     let profile = Profile {
         observe_seconds: 0,
@@ -61,36 +97,6 @@ fn evening() -> Sim {
             ..Capabilities::default()
         },
     }));
-
-    sim.model_says("Thursday works for four of you.");
-    sim.say("dinner", "jo", "Q, what do you reckon?");
-    sim.advance(60);
-    sim.say("dinner", "priya", "Hobson's, half seven, thursday");
-    sim.advance(60);
-
-    sim.classify(ClassifierScript::Answerable);
-    let question = sim.say("dinner", "sam", "what time was it again?").id;
-    sim.advance(WINDOW);
-    sim.model_says("Half seven at Hobson's.");
-    sim.react("dinner", &question, "jo", "👍");
-    let answer = sim.last_sent_message().unwrap();
-    sim.react("dinner", &answer, "alex", "❤️");
-
-    sim.advance(HOUR);
-    sim.feed(Input::Command(Command::ChangeSetting {
-        change: SettingChange::DialTo { dial: 2 },
-    }));
-    sim.script(ModelScript::Reply(plan("Called it.")));
-    sim.classify(ClassifierScript::Score(banter(0.9)));
-    sim.say("dinner", "sam", "WE GOT THE HOUSE");
-    let chime = sim.last_sent_message().unwrap();
-    sim.react("dinner", &chime, "priya", "🤫");
-
-    sim.advance(60);
-    sim.model_says("Bring a jacket.");
-    sim.say("dinner", "priya", "Q, what should I bring?");
-    sim.advance(60);
-    sim.say("dinner", "alex", "lol");
     sim
 }
 
@@ -546,4 +552,98 @@ async fn a_request_the_log_never_answered_is_reported_where_it_was_made() {
         )]
     );
     assert!(render_markdown(&report).contains("1 requests the log never answered"));
+}
+
+/// What each time phrase means, for the log and the live resolver alike.
+fn meaning_of(phrase: &str) -> (TimeMeaning, Option<String>) {
+    if phrase.to_lowercase().contains("holidays") {
+        (
+            TimeMeaning::Span {
+                start: instant("2027-01-04T00:00:00Z"),
+                end: instant("2027-01-11T00:00:00Z"),
+            },
+            Some("the week of 4 January".to_owned()),
+        )
+    } else {
+        (
+            TimeMeaning::Instant {
+                at: instant("2026-12-24T18:00:00Z"),
+                has_time: true,
+            },
+            Some("Christmas Eve".to_owned()),
+        )
+    }
+}
+
+struct PhraseResolver;
+
+#[async_trait]
+impl TimeResolver for PhraseResolver {
+    async fn resolve(
+        &self,
+        _: &GroupId,
+        request: TimeRequest,
+    ) -> Result<TimeResolution, ModelError> {
+        let (meaning, echo) = meaning_of(&request.text);
+        Ok(TimeResolution {
+            room: request.room,
+            message: request.message,
+            phrase: Some(request.text),
+            meaning,
+            echo,
+        })
+    }
+
+    fn name(&self) -> &str {
+        "phrases"
+    }
+}
+
+#[tokio::test]
+async fn two_times_in_one_message_each_get_their_own_live_answer() {
+    let mut sim = dinner();
+    sim.resolves(TimeScript::Silent);
+    sim.resolves(TimeScript::Silent);
+    let asked = sim.say(
+        "dinner",
+        "alex",
+        "Q, poll: after the holidays or before christmas",
+    );
+    let requests: Vec<TimeRequest> = asked
+        .effects
+        .iter()
+        .filter_map(|e| match e {
+            Effect::ResolveTime(r) => Some(r.clone()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(requests.len(), 2, "{:#?}", asked.effects);
+    for request in requests {
+        sim.advance(5);
+        let (meaning, echo) = meaning_of(&request.text);
+        sim.feed(Input::TimeResolved(TimeResolution {
+            room: request.room,
+            message: request.message,
+            phrase: Some(request.text),
+            meaning,
+            echo,
+        }));
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let store = write_journal(dir.path(), &sim);
+    let options = ReplayOptions {
+        oracle: Oracle::Live {
+            model: Arc::new(DifferentModel {
+                calls: AtomicU32::new(0),
+            }),
+            classifier: Arc::new(ScriptedClassifier),
+            extractor: Arc::new(NoExtractor),
+            resolver: Arc::new(PhraseResolver),
+        },
+        ..ReplayOptions::logged(GroupId::new(GROUP))
+    };
+
+    let report = replay(&store, options).await.unwrap();
+    assert!(report.divergences.is_empty(), "{:#?}", report.divergences);
+    assert_eq!(report.logged, report.replayed);
 }

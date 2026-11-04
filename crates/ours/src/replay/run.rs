@@ -35,7 +35,9 @@ enum Stage {
     Resolve,
 }
 
-type StageKey = (Stage, PlatformRoomId, PlatformMessageId);
+/// A stage request by what it asks and where. A time request also carries
+/// its phrase, since one message can hold several; the others carry "".
+type StageKey = (Stage, PlatformRoomId, PlatformMessageId, String);
 
 #[derive(Debug)]
 enum StageAnswer {
@@ -309,6 +311,7 @@ impl Run {
                         Stage::Classify,
                         r.room.clone(),
                         r.message.clone(),
+                        String::new(),
                     ));
                 }
                 Effect::Extract(r) => {
@@ -316,6 +319,7 @@ impl Run {
                         Stage::Extract,
                         r.room.clone(),
                         r.message.clone(),
+                        String::new(),
                     ));
                 }
                 Effect::ResolveTime(r) => {
@@ -323,6 +327,7 @@ impl Run {
                         Stage::Resolve,
                         r.room.clone(),
                         r.message.clone(),
+                        r.text.clone(),
                     ));
                 }
                 Effect::CancelTimer { .. } | Effect::Notice(_) | Effect::Redact { .. } => {}
@@ -355,7 +360,12 @@ impl Run {
                 message,
                 score,
             } => {
-                let key = (Stage::Classify, room.clone(), message.clone());
+                let key = (
+                    Stage::Classify,
+                    room.clone(),
+                    message.clone(),
+                    String::new(),
+                );
                 let score = match self.stage_answer(key)? {
                     Some(StageAnswer::Score(live)) => live,
                     _ => score,
@@ -371,7 +381,7 @@ impl Run {
                 message,
                 extraction,
             } => {
-                let key = (Stage::Extract, room.clone(), message.clone());
+                let key = (Stage::Extract, room.clone(), message.clone(), String::new());
                 let extraction = match self.stage_answer(key)? {
                     Some(StageAnswer::Extraction(live)) => live,
                     _ => extraction,
@@ -387,6 +397,7 @@ impl Run {
                     Stage::Resolve,
                     resolution.room.clone(),
                     resolution.message.clone(),
+                    resolution.phrase.clone().unwrap_or_default(),
                 );
                 Some(Input::TimeResolved(match self.stage_answer(key)? {
                     Some(StageAnswer::Time(live)) => live,
@@ -533,6 +544,7 @@ impl Run {
                         Stage::Classify,
                         request.room.clone(),
                         request.message.clone(),
+                        String::new(),
                     );
                     let paired = self.pair_stage(&key, live.is_none());
                     if let Some(live) = &live {
@@ -553,6 +565,7 @@ impl Run {
                         Stage::Extract,
                         request.room.clone(),
                         request.message.clone(),
+                        String::new(),
                     );
                     let paired = self.pair_stage(&key, live.is_none());
                     if let Some(live) = &live {
@@ -574,6 +587,7 @@ impl Run {
                         Stage::Resolve,
                         request.room.clone(),
                         request.message.clone(),
+                        request.text.clone(),
                     );
                     let paired = self.pair_stage(&key, live.is_none());
                     if let Some(live) = &live {

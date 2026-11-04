@@ -7,6 +7,9 @@ use std::net::SocketAddr;
 use std::path::{Path, PathBuf};
 use thiserror::Error;
 
+/// The platforms this release has a connector for.
+pub const BUILT_PLATFORMS: [Platform; 3] = [Platform::Discord, Platform::Slack, Platform::Telegram];
+
 #[derive(Debug, Error)]
 pub enum ConfigError {
     #[error("could not read {path}: {source}")]
@@ -333,7 +336,28 @@ impl Config {
     }
 
     fn validate(&self) -> Result<(), ConfigError> {
-        for connector in &self.connectors {
+        let cap = self.model.daily_cap_usd;
+        if !cap.is_finite() || cap <= 0.0 {
+            return Err(ConfigError::Invalid(format!(
+                "[model] daily_cap_usd must be a number above zero, not {cap}"
+            )));
+        }
+        for (i, connector) in self.connectors.iter().enumerate() {
+            if !BUILT_PLATFORMS.contains(&connector.platform) {
+                return Err(ConfigError::Invalid(format!(
+                    "the {:?} connector is not built yet",
+                    connector.platform
+                )));
+            }
+            if self.connectors[..i]
+                .iter()
+                .any(|c| c.platform == connector.platform)
+            {
+                return Err(ConfigError::Invalid(format!(
+                    "there are two {:?} connectors; give each platform one table",
+                    connector.platform
+                )));
+            }
             if connector.platform == Platform::Slack
                 && connector.app_token.as_deref().unwrap_or("").is_empty()
             {
@@ -429,5 +453,69 @@ rooms = [{ platform = "slack", id = "C1" }]
         let config: Config = toml::from_str(text).expect("parses");
         let err = config.validate().expect_err("must fail");
         assert!(err.to_string().contains("no connector"));
+    }
+
+    fn with_connectors(connectors: &str) -> Config {
+        let text = format!(
+            r#"
+[host]
+[model]
+base_url = "http://localhost:8080/v1"
+model = "m"
+{connectors}
+"#
+        );
+        toml::from_str(&text).expect("parses")
+    }
+
+    #[test]
+    fn rejects_two_connectors_for_one_platform() {
+        let config = with_connectors(
+            r#"
+[[connectors]]
+platform = "discord"
+token = "a"
+[[connectors]]
+platform = "discord"
+token = "b"
+"#,
+        );
+        let err = config.validate().expect_err("must fail");
+        assert!(err.to_string().contains("two Discord connectors"), "{err}");
+    }
+
+    #[test]
+    fn rejects_a_platform_that_is_not_built() {
+        let config = with_connectors(
+            r#"
+[[connectors]]
+platform = "matrix"
+token = "a"
+"#,
+        );
+        let err = config.validate().expect_err("must fail");
+        assert!(err.to_string().contains("not built"), "{err}");
+        with_connectors(
+            r#"
+[[connectors]]
+platform = "telegram"
+token = "a"
+"#,
+        )
+        .validate()
+        .expect("telegram is built");
+    }
+
+    #[test]
+    fn rejects_a_daily_cap_that_is_not_above_zero() {
+        for cap in [0.0, -1.0, f64::NAN, f64::INFINITY] {
+            let mut config = with_connectors("");
+            config.model.daily_cap_usd = cap;
+            let err = config.validate().expect_err("must fail");
+            assert!(err.to_string().contains("daily_cap_usd"), "{cap}: {err}");
+        }
+        let mut config = with_connectors("");
+        config.model.daily_cap_usd = 0.25;
+        config.validate().expect("a small cap is fine");
     }
 }

@@ -83,9 +83,9 @@ impl OursStack {
     /// The stack `ours run` would use for this configuration.
     pub fn from_config(config: &crate::config::Config) -> Result<OursStack, BenchError> {
         let setup = |e: anyhow::Error| BenchError::Setup(e.to_string());
-        let (model, dialect) = crate::run::build_model(config).map_err(setup)?;
+        let (model, dialect, meter) = crate::run::build_model(config).map_err(setup)?;
         let (classifier, extractor, resolver) =
-            crate::run::build_small_models(config, &model, dialect).map_err(setup)?;
+            crate::run::build_small_models(config, &model, dialect, &meter).map_err(setup)?;
         Ok(OursStack {
             model,
             classifier,
@@ -720,8 +720,12 @@ impl<'a> Driver<'a> {
         }
         for record in &s.actions {
             if self.seen.actions.insert(record.id.clone()) {
+                // A mail that went at once is reported as send_mail when it goes,
+                // and a refused one was never held.
                 match record.class {
-                    ours_core::ActionClass::Mail => {
+                    ours_core::ActionClass::Mail
+                        if matches!(record.status, ours_core::ActionStatus::Held { .. }) =>
+                    {
                         found.push(("hold_mail", record.summary.clone()))
                     }
                     ours_core::ActionClass::Undo => found.push(("undo", record.summary.clone())),

@@ -188,9 +188,9 @@ async fn main() -> anyhow::Result<()> {
                 max_tokens: config.model.chat_max_tokens,
             };
             if live {
-                let (model, dialect) = run::build_model(&config)?;
+                let (model, dialect, meter) = run::build_model(&config)?;
                 let (classifier, extractor, resolver) =
-                    run::build_small_models(&config, &model, dialect)?;
+                    run::build_small_models(&config, &model, dialect, &meter)?;
                 options.strict_schema = dialect == ours_model::Dialect::OpenAi;
                 options.oracle = ours::replay::Oracle::Live {
                     model,

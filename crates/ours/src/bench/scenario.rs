@@ -17,6 +17,8 @@ pub const GENERAL: &str = "general";
 pub const DM: &str = "dm";
 /// What `"to"` says to react to the agent's latest message in the room.
 pub const AGENT: &str = "agent";
+/// Room past the end for timers the engine arms during a run.
+const HEADROOM_SECONDS: i64 = 400 * 24 * 60 * 60;
 
 /// Every action name a scenario may expect or forbid.
 pub const ACTIONS: [&str; 11] = [
@@ -207,7 +209,9 @@ impl Scenario {
     /// Seconds from start when the run stops.
     pub fn end_seconds(&self) -> i64 {
         let last = self.turns.last().map_or(0, |t| t.t);
-        self.end.unwrap_or(last + DEFAULT_TAIL_SECONDS).max(last)
+        self.end
+            .unwrap_or(last.saturating_add(DEFAULT_TAIL_SECONDS))
+            .max(last)
     }
 
     pub fn member(&self, id: &str) -> Option<&ScenarioMember> {
@@ -296,7 +300,7 @@ impl Scenario {
         if self.name.trim().is_empty() {
             return Err(self.invalid("the name is empty".to_owned()));
         }
-        self.start_instant()?;
+        let start = self.start_instant()?;
         if let Some(zone) = &self.timezone {
             jiff::tz::TimeZone::get(zone)
                 .map_err(|e| self.invalid(format!("timezone {zone:?}: {e}")))?;
@@ -318,6 +322,12 @@ impl Scenario {
             }
             if line.ago <= 0 {
                 return Err(self.invalid("history lines are before the start".to_owned()));
+            }
+            if offset(start, -line.ago).is_none() {
+                return Err(self.invalid(format!(
+                    "history line {} seconds ago is before the clock's range",
+                    line.ago
+                )));
             }
             if !is_channel(&line.room) {
                 return Err(self.invalid(format!("history room {:?} is not a channel", line.room)));
@@ -368,6 +378,13 @@ impl Scenario {
         {
             return Err(self.invalid("end is before the last turn".to_owned()));
         }
+        // Every turn falls at or before the end, so checking the end covers them.
+        let end = self.end_seconds();
+        if offset(start, end.saturating_add(HEADROOM_SECONDS)).is_none() {
+            return Err(self.invalid(format!(
+                "the run ends {end} seconds after the start, past the clock's range"
+            )));
+        }
         for (i, expectation) in self.expectations()?.iter().enumerate() {
             let Some(e) = expectation else { continue };
             let named = e
@@ -391,6 +408,15 @@ impl Scenario {
             problem,
         }
     }
+}
+
+/// `start` moved by `seconds`, or None when that falls outside the clock's range.
+fn offset(start: Instant, seconds: i64) -> Option<Instant> {
+    start
+        .0
+        .checked_add(jiff::SignedDuration::from_secs(seconds))
+        .ok()
+        .map(Instant)
 }
 
 /// Whether a turn's room is a channel rather than a DM or a thread.
@@ -514,6 +540,34 @@ mod tests {
         let mut s = tiny();
         s.expect.get_mut("0").unwrap().action = Some(Actions::One("teleport".into()));
         assert!(s.validate().is_err(), "unknown action");
+    }
+
+    #[test]
+    fn times_past_the_clock_are_refused_not_run() {
+        let mut s = tiny();
+        s.turns[2].t = i64::MAX;
+        assert!(s.validate().is_err(), "turn past the clock");
+
+        let mut s = tiny();
+        s.end = Some(i64::MAX);
+        assert!(s.validate().is_err(), "end past the clock");
+
+        let mut s = tiny();
+        s.start = Some("9999-12-01T00:00:00Z".into());
+        assert!(s.validate().is_err(), "no room after the end");
+
+        let mut s = tiny();
+        s.history.push(HistoryLine {
+            ago: i64::MAX,
+            from: "sam".into(),
+            text: "long ago".into(),
+            room: GENERAL.into(),
+        });
+        assert!(s.validate().is_err(), "history before the clock");
+
+        let mut s = tiny();
+        s.end = Some(30 * 24 * 60 * 60);
+        s.validate().expect("a month is fine");
     }
 
     #[test]

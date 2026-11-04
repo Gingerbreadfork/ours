@@ -115,6 +115,8 @@ pub struct AgentRun {
     pub name: String,
     pub scores: Vec<ScenarioScore>,
     pub transcripts: Vec<Transcript>,
+    /// Loaded transcripts that name no scenario in the suite, so went unscored.
+    pub unscored: Vec<String>,
 }
 
 /// Runs or loads one agent over every scenario and scores it. `live` is the
@@ -126,6 +128,7 @@ pub async fn run_agent(
 ) -> Result<AgentRun, BenchError> {
     let mut transcripts = Vec::new();
     let mut scores = Vec::new();
+    let mut unscored = Vec::new();
     let name = match spec {
         AgentSpec::Ours | AgentSpec::Rules => {
             let rules = OursStack::rules_only();
@@ -160,6 +163,10 @@ pub async fn run_agent(
                     None => scores.push(ScenarioScore::not_run(s)),
                 }
             }
+            for name in loaded.into_keys() {
+                tracing::warn!(scenario = %name, path = %path.display(), "a transcript names no scenario in the suite; it is not scored");
+                unscored.push(name);
+            }
             transcripts
                 .iter()
                 .map(|t| t.agent.trim())
@@ -173,6 +180,7 @@ pub async fn run_agent(
         name,
         scores,
         transcripts,
+        unscored,
     })
 }
 
@@ -206,6 +214,15 @@ pub fn with_placeholders(
 /// save transcripts when asked, and write the results page. Returns the page.
 pub async fn bench(options: &BenchOptions, live: Option<&OursStack>) -> Result<String, BenchError> {
     let scenarios = load_scenarios(&options.scenarios)?;
+    // A page that cannot be written should fail before the agents run, not after.
+    if let Some(dir) = options.out.as_deref().and_then(Path::parent)
+        && !dir.as_os_str().is_empty()
+    {
+        std::fs::create_dir_all(dir).map_err(|source| BenchError::Write {
+            path: dir.to_owned(),
+            source,
+        })?;
+    }
     let mut rows = Vec::new();
     for spec in &options.agents {
         let run = run_agent(spec, &scenarios, live).await?;
@@ -270,6 +287,42 @@ mod tests {
         assert!("transcript:".parse::<AgentSpec>().is_err());
         assert!("gpt".parse::<AgentSpec>().is_err());
         assert_eq!(slug("Ours, rules only"), "ours-rules-only");
+    }
+
+    const TINY: &str = r#"{
+        "name": "tiny", "kind": "friends", "description": "one line",
+        "members": [{ "id": "sam", "name": "Sam", "role": "lead" }],
+        "turns": [{ "t": 0, "from": "sam", "text": "Noa, hi" }],
+        "expect": { "0": { "speak": "must" } }
+    }"#;
+
+    #[tokio::test]
+    async fn a_transcript_for_no_scenario_is_reported_as_unscored() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(dir.path().join("tiny.json"), "[]").unwrap();
+        std::fs::write(dir.path().join("elsewhere.json"), "[]").unwrap();
+        let suite = vec![Scenario::from_json(TINY).unwrap()];
+        let spec = AgentSpec::Transcripts(dir.path().to_owned());
+        let run = run_agent(&spec, &suite, None).await.unwrap();
+        assert_eq!(run.transcripts.len(), 1);
+        assert_eq!(run.unscored, vec!["elsewhere".to_owned()]);
+    }
+
+    #[tokio::test]
+    async fn the_results_page_can_go_into_a_new_directory() {
+        let dir = tempfile::tempdir().unwrap();
+        let scenarios = dir.path().join("scenarios");
+        std::fs::create_dir(&scenarios).unwrap();
+        std::fs::write(scenarios.join("tiny.json"), TINY).unwrap();
+        let out = dir.path().join("site").join("bench").join("results.md");
+        let options = BenchOptions {
+            agents: vec![AgentSpec::Rules],
+            scenarios,
+            out: Some(out.clone()),
+            transcripts: None,
+        };
+        let page = bench(&options, None).await.unwrap();
+        assert_eq!(std::fs::read_to_string(out).unwrap(), page);
     }
 
     #[test]

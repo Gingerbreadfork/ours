@@ -1,8 +1,8 @@
 # Changelog
 
-## 0.1.0-rc.2
+## 0.0.1
 
-First release candidate. Linux x86_64 and aarch64.
+First release. Linux x86_64 and aarch64.
 
 ### Platforms
 
@@ -84,6 +84,104 @@ First release candidate. Linux x86_64 and aarch64.
 
 - A release tarball with checksums, an OCI image, a systemd unit and a
   Podman quadlet, built from a tag with provenance attestations.
+
+### Fixed since the earlier builds
+
+#### Privacy and authority
+
+- A member's `that's wrong` or `remember that` about someone else's fact
+  waits for a lead's ✅, as `forget that` does. A lone `that's wrong`
+  applies to the agent's last message only if it was recent or is the
+  latest in the room.
+- A card number said anywhere is never kept: the message is not read, it
+  is scrubbed from the journal, and its author is told why. A payment link
+  said in a room is scrubbed from the journal too.
+- A lead over one room is a lead only there, not in DMs.
+- New members get one DM on joining saying what Ours keeps, whom it
+  listens to, that the host sees everything, and how to see or delete what
+  it holds about them.
+- The model label in the pinned message, charter and prompt says where the
+  model runs, and names the hosted service when it is not on the host's
+  network.
+- The action log keeps its records for the whole retention period. Past
+  10,000 records the oldest go early, with a notice, and never under a
+  legal hold.
+- `forget me` stops any settle-up waiting on you.
+- Deleting a message takes its words out of `why`.
+- The telemetry group tag rests on a per-group salt that never leaves the
+  host.
+
+#### Mail
+
+- A sender counts as verified only when the provider's DMARC check passes
+  for the From domain, or, with no DMARC verdict, a DKIM or SPF pass
+  aligned with it.
+- Mail is marked read only after every group has kept it, and a mail
+  delivered twice is read once. In dir mode an unreadable file moves to
+  `in/failed`.
+- An unverified reply never overwrites a fact held more surely.
+
+#### Decisions, the tab and time
+
+- `settle up` settles the tab where it is asked; a room's settle-up leaves
+  other rooms' tabs alone.
+- A member's calendar feed includes entries a lead decided.
+- A re-vote won by an option with no date takes the old date off the
+  calendar.
+- A poll whose option turns out to be soon closes in time.
+- Undoing a lapsed poll says it lapsed.
+- The same promise for another day is kept as a second one.
+- An addressed message that only mentions an option is not counted as a
+  vote.
+- Setting up a recurrence again changes the one there.
+- Working hours can run past midnight.
+- "in November" said in November runs from today.
+- Whole-day entries follow daylight saving changes.
+- `what do I owe` counts every currency, and `not me` from someone outside
+  a split changes nothing.
+- A digest line lists five items and counts the rest.
+- A failed edit of the pinned message is tried again, and a lost one is
+  posted again.
+- `why please` works.
+- Due times written with seconds or an offset are no longer dropped.
+
+#### Platforms
+
+- Discord: an edit fetched from a server outside the allowlist, or from a
+  channel the bot does not know, is no longer taken for a DM. A removal
+  during a server outage still ends its rooms. Members load correctly when
+  their chunks arrive out of order. A forum's id is logged when its
+  threads first sync.
+- Discord and Telegram: a long reply that fails partway is kept as sent.
+- Slack: reactions on thread messages land in the thread after a restart,
+  edited messages stay plain text, and a refreshed connection syncs rooms
+  again.
+- Telegram: votes on a poll opened before a restart still count, and a
+  member seen for the first time after a restart is not taken for someone
+  who just joined.
+
+#### Host tools
+
+- Every start and `ours check` verify each journal's hash chain and log
+  its head hash.
+- Only the newest two snapshots are kept, and the compliance page reads an
+  index instead of the whole journal.
+- `ours check` refuses two connectors for one platform and platforms that
+  are not built. `daily_cap_usd` must be above zero, and a classifier on
+  its own endpoint shares the same cap.
+- Stopping waits for the groups to save, then stops everything else.
+- After a wipe, calendar links use the new secret.
+- The admin live feed no longer drops an event that reads like an earlier
+  one.
+- `ours replay --live` pairs each time answer with its own question.
+  `ours bench` refuses scenario times past the clock, warns about
+  transcripts for no scenario, creates the `--out` directory, and no
+  longer scores a refused mail as held.
+
+#### Packaging
+
+- The release image is published only after the checks pass, a tag must
+  match the version, and the toolchain is pinned.
 
 ### Not in this release
 

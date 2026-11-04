@@ -2,7 +2,7 @@
 
 Ours is one binary, `ours`, and one config file, `ours.toml`. This
 page takes you from a download to the agent saying hello in a room. The
-Linux on x86_64 and aarch64 are the supported builds in 0.1.0-rc.2.
+Linux on x86_64 and aarch64 are the supported builds in 0.0.1.
 
 ## What you need
 
@@ -19,15 +19,15 @@ Linux on x86_64 and aarch64 are the supported builds in 0.1.0-rc.2.
    the download.
 
        sha256sum -c SHA256SUMS --ignore-missing
-       gh attestation verify ours-0.1.0-rc.2-<arch>-linux.tar.gz --repo Gingerbreadfork/ours
+       gh attestation verify ours-0.0.1-<arch>-linux.tar.gz --repo Gingerbreadfork/ours
 
    If a `SHA256SUMS.bundle` is attached, `cosign verify-blob` checks the
    signature on `SHA256SUMS` too.
 
 2. Unpack it and put the binary on your path.
 
-       tar xzf ours-0.1.0-rc.2-<arch>-linux.tar.gz    # x86_64 or aarch64
-       cd ours-0.1.0-rc.2-<arch>-linux
+       tar xzf ours-0.0.1-<arch>-linux.tar.gz    # x86_64 or aarch64
+       cd ours-0.0.1-<arch>-linux
        sudo install -m 0755 ours /usr/local/bin/ours
 
 3. Make the config. The tarball carries `ours.example.toml`.
@@ -77,7 +77,7 @@ from `/etc/ours/ours.toml` and keeps its data in `/data`. Set
       -v /etc/ours/ours.toml:/etc/ours/ours.toml:ro \
       -v ours-data:/data \
       --env-file /etc/ours/env \
-      ghcr.io/gingerbreadfork/ours:0.1.0-rc.2
+      ghcr.io/gingerbreadfork/ours:0.0.1
 
 `-p 7777:7777` publishes the admin page on every interface, over plain
 HTTP, so a phone on your network can open it. Anyone who can read the
@@ -87,7 +87,7 @@ see [admin.md](admin.md).
 
 `deploy/ours.container` is the same thing as a Podman quadlet. Copy it to
 `/etc/containers/systemd/` and run `systemctl daemon-reload`. Verify the
-image with `gh attestation verify oci://ghcr.io/gingerbreadfork/ours:0.1.0-rc.2 --repo Gingerbreadfork/ours`.
+image with `gh attestation verify oci://ghcr.io/gingerbreadfork/ours:0.0.1 --repo Gingerbreadfork/ours`.
 
 If your model runs on the host, the container cannot reach it at
 `localhost`. Use the host's address, or run the container with host

@@ -176,7 +176,7 @@ model the agent uses. A group that cares can insist on a local one.
 
 ## Out of scope
 
-- **Minors.** Groups with children are out of scope for 0.1.0-rc.2. There
+- **Minors.** Groups with children are out of scope for 0.0.1. There
   is no mode that keeps nothing about named children yet.
 - **Sensitive groups.** Support groups, groups about health, legal,
   immigration or safety, and anything where a leak would harm someone, are

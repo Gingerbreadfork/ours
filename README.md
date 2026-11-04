@@ -164,7 +164,7 @@ The compliance page at `/compliance` states what is kept, where, for how long, a
 
 ## Status
 
-0.1.0-rc.2. Linux binaries; Discord, Slack and Telegram; calendar as ICS feeds only. Not yet: calendar sync beyond ICS, receipt photos, encryption at rest, changing settings from the admin page, federation, and a children mode. See the [changelog](CHANGELOG.md) for the full list.
+0.0.1. Linux binaries; Discord, Slack and Telegram; calendar as ICS feeds only. Not yet: calendar sync beyond ICS, receipt photos, encryption at rest, changing settings from the admin page, federation, and a children mode. See the [changelog](CHANGELOG.md) for the full list.
 
 ## Development
 

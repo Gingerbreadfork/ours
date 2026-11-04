@@ -102,6 +102,11 @@ where
         Ok(self.log.drop_snapshots_from(seq)?)
     }
 
+    /// Walks the hash chain and returns its newest seq and hash.
+    pub fn verify_head(&self) -> Result<ours_store::ChainHead, JournalError> {
+        Ok(self.log.verify_head()?)
+    }
+
     pub fn stats(&self) -> Result<ours_store::StoreStats, JournalError> {
         Ok(self.log.stats()?)
     }

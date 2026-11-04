@@ -171,20 +171,34 @@ impl GroupRunner {
         wiring: Wiring,
     ) -> Result<Self, GroupError> {
         let journal = wiring.journal.clone();
-        let (state, seq) = {
+        let (state, seq, chain) = {
             let id = id.clone();
             let kind = desired.kind;
-            tokio::task::spawn_blocking(move || -> Result<(GroupState, u64), JournalError> {
+            tokio::task::spawn_blocking(move || -> Result<_, JournalError> {
+                let chain = journal.verify_head();
                 let recovered = journal.recover()?;
                 let mut state = recovered.state.unwrap_or_else(|| GroupState::new(id, kind));
                 let seq = journal.replay(recovered.seq, |_, at, input| {
                     let _ = step(&mut state, input, at);
                     Ok(())
                 })?;
-                Ok((state, seq))
+                Ok((state, seq, chain))
             })
             .await??
         };
+        // A broken chain is reported, not fatal: the group keeps running so
+        // the host can look at the file.
+        match chain {
+            Ok(head) => tracing::info!(
+                group = %id,
+                records = head.seq,
+                head = %head.hash_hex(),
+                "journal chain verified"
+            ),
+            Err(error) => {
+                tracing::error!(group = %id, %error, "journal chain does not verify")
+            }
+        }
         tracing::info!(group = %id, seq, rooms = state.rooms.len(), "state rebuilt");
 
         let (fired_tx, fired) = mpsc::channel(64);

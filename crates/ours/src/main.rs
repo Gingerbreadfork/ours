@@ -146,7 +146,7 @@ async fn main() -> anyhow::Result<()> {
                 );
             }
             tracing::info!("configuration is valid");
-            Ok(())
+            verify_journals(&config.host.data_dir)
         }
         Command::Run => {
             let config = config::Config::load(&cli.config)?;
@@ -354,4 +354,33 @@ async fn main() -> anyhow::Result<()> {
             Ok(())
         }
     }
+}
+
+/// Walks every group's hash chain under `data_dir` and logs its head, so the
+/// host can record it. Fails when any chain does not verify.
+fn verify_journals(data_dir: &std::path::Path) -> anyhow::Result<()> {
+    use ours_store::EventLog;
+    if !data_dir.is_dir() {
+        return Ok(());
+    }
+    let store = ours_store::StoreDir::open(data_dir)?;
+    let mut broken = Vec::new();
+    for id in store.groups()? {
+        match store.open_group(&id)?.verify_head() {
+            Ok(head) => tracing::info!(
+                group = %id,
+                records = head.seq,
+                head = %head.hash_hex(),
+                "journal chain verified"
+            ),
+            Err(error) => {
+                tracing::error!(group = %id, %error, "journal chain does not verify");
+                broken.push(id.to_string());
+            }
+        }
+    }
+    if !broken.is_empty() {
+        anyhow::bail!("journal chain does not verify for {}", broken.join(", "));
+    }
+    Ok(())
 }

@@ -10,13 +10,10 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
-      - name: Format, lint and test
+      - name: Format, lint, test and the TLS provider
         run: scripts/check.sh
-      - name: One TLS provider
-        run: test "$(cargo tree --workspace -e features -i rustls | grep -c 'feature "ring"')" = "0"
       - name: Benchmark, rules only
         run: cargo run -p ours -- bench --agent rules

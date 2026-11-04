@@ -22,6 +22,11 @@ if [ -z "$version" ]; then
     echo "could not read the version from Cargo.toml" >&2
     exit 1
 fi
+# A tag build must carry the version it is tagged as.
+if [ "${GITHUB_REF_TYPE:-}" = "tag" ] && [ "${GITHUB_REF_NAME#v}" != "$version" ]; then
+    echo "tag ${GITHUB_REF_NAME} does not match version ${version} in Cargo.toml" >&2
+    exit 1
+fi
 # The machine's own architecture: the workflow runs this on x86_64 and aarch64 runners.
 arch="$(uname -m)"
 name="ours-${version}-${arch}-linux"

@@ -27,9 +27,8 @@ jobs:
       attestations: write
     steps:
       - uses: actions/checkout@v5
-      - uses: dtolnay/rust-toolchain@stable
-        with:
-          components: rustfmt, clippy
+      - name: Install the pinned toolchain
+        run: rustup toolchain install
       - uses: Swatinem/rust-cache@v2
       - name: Check
         run: scripts/check.sh
@@ -48,6 +47,7 @@ jobs:
           if-no-files-found: error
 
   image:
+    needs: tarball
     runs-on: ubuntu-24.04
     permissions:
       contents: read

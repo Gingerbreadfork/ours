@@ -10,7 +10,7 @@
 <p align="center">
   <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT"></a>
   <a href="https://github.com/Gingerbreadfork/ours/actions/workflows/ci.yml"><img src="https://github.com/Gingerbreadfork/ours/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
-  <a href="https://github.com/Gingerbreadfork/ours/releases"><img src="https://img.shields.io/badge/Rust-1.99%2B-orange" alt="Rust 1.99+"></a>
+  <img src="https://img.shields.io/badge/Rust-1.99%2B-orange" alt="Rust 1.99+">
 </p>
 
 <p align="center">Discord, Slack and Telegram · one binary, one SQLite file per group</p>
@@ -169,7 +169,7 @@ The compliance page at `/compliance` states what is kept, where, for how long, a
 
 ## Status
 
-0.1.0-rc.2. Linux binaries; Discord, Slack and Telegram; calendar as ICS feeds only. Not yet: calendar sync beyond ICS, receipt photos, encryption at rest, changing settings from the admin page, federation, and a children mode. See the changelog for the full list.
+0.1.0-rc.2. Linux binaries; Discord, Slack and Telegram; calendar as ICS feeds only. Not yet: calendar sync beyond ICS, receipt photos, encryption at rest, changing settings from the admin page, federation, and a children mode. See the [changelog](CHANGELOG.md) for the full list.
 
 ## Development
 

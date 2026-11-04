@@ -3,7 +3,7 @@
 
 use crate::config::{Config, ModelDialect};
 use crate::runtime::admin::AdminHub;
-use crate::runtime::group::{Desired, GroupRunner, RunEnd, WipeRequest, Wiring};
+use crate::runtime::group::{Desired, GroupRunner, MailDelivery, RunEnd, WipeRequest, Wiring};
 use crate::runtime::journal::Journal;
 use crate::runtime::router::Router;
 use ours_admin::{AdminConfig, AdminServer, AdminSource, qr_lines_for};
@@ -25,7 +25,7 @@ use std::net::{IpAddr, UdpSocket};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
-use tokio::sync::{mpsc, watch};
+use tokio::sync::{mpsc, oneshot, watch};
 use tokio::task::JoinHandle;
 
 /// How long a stop waits for the groups to snapshot.
@@ -127,7 +127,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     // Groups: queues first, so the router can be shared before the actors exist.
     let mut router = Router::new();
     let mut pending = Vec::new();
-    let mut group_queues: Vec<mpsc::Sender<Input>> = Vec::new();
+    let mut mail_queues: Vec<mpsc::Sender<MailDelivery>> = Vec::new();
     for section in &config.groups {
         let id = GroupId::new(section.id.clone());
         let rooms: Vec<(Platform, ours_types::PlatformRoomId)> = section
@@ -137,13 +137,14 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .collect();
         let (tx, rx) = mpsc::channel(1024);
         router.register(id.clone(), &rooms, tx.clone());
-        group_queues.push(tx.clone());
-        pending.push((id, section, rooms, tx, rx));
+        let (mail_tx, mail_rx) = mpsc::channel(16);
+        mail_queues.push(mail_tx);
+        pending.push((id, section, rooms, tx, rx, mail_rx));
     }
     let router = Arc::new(router);
     let label = model_label(&config);
 
-    for (id, section, rooms, tx, rx) in pending {
+    for (id, section, rooms, tx, rx, mail_rx) in pending {
         let journal = Journal::new(store.open_group(&id)?);
         let feed_secret = journal.feed_secret()?;
         hub.set_feed_secret(&id, feed_secret.clone());
@@ -190,6 +191,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             journal,
             inputs: rx,
             wipes: wipe_rx,
+            mail: mail_rx,
             self_tx: tx,
             outbound: outbound.clone(),
             model: Arc::clone(&model),
@@ -220,7 +222,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             loop {
                 match runner.run(shutdown.clone()).await {
                     Ok(RunEnd::Shutdown) => break,
-                    Ok(RunEnd::Wiped { inputs, wipes, done }) => {
+                    Ok(RunEnd::Wiped { inputs, wipes, mail, done }) => {
                         // The runner is gone, and with it every handle on the file.
                         let journal = match start_over(&store, &hub, &data_dir, &id, &public_base, &mut desired) {
                             Ok(journal) => journal,
@@ -230,7 +232,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                                 break;
                             }
                         };
-                        match GroupRunner::recover(id.clone(), desired.clone(), again.wiring(journal, inputs, wipes)).await {
+                        match GroupRunner::recover(id.clone(), desired.clone(), again.wiring(journal, inputs, wipes, mail)).await {
                             Ok(next) => {
                                 tracing::warn!(group = %id, "wiped and started fresh");
                                 let _ = done.send(Ok(()));
@@ -262,15 +264,29 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             .and_then(|m| m.imap.as_ref())
             .map_or(Duration::from_secs(60), |i| i.interval());
         tasks.push(tokio::spawn(ours_mail::poll_loop(inbox, every, mail_tx)));
-        let queues: Vec<mpsc::Sender<Input>> = group_queues.clone();
+        let queues = mail_queues;
         let own = config.mail.as_ref().map(|m| address_in(&m.from));
         tasks.push(tokio::spawn(async move {
-            while let Some(mail) = mail_rx.recv().await {
+            while let Some(ours_mail::Delivery { mail, ack }) = mail_rx.recv().await {
                 if own.as_deref() == Some(address_in(&mail.from).as_str()) {
+                    ack.ack();
                     continue;
                 }
+                // Marked read only once every group has journaled it; otherwise
+                // it comes back after a restart and the engine skips a repeat.
+                let mut kept = Vec::new();
                 for queue in &queues {
-                    let _ = queue.send(Input::Mail(mail.clone())).await;
+                    let (tx, rx) = oneshot::channel();
+                    if queue.send((mail.clone(), tx)).await.is_ok() {
+                        kept.push(rx);
+                    }
+                }
+                let mut all = kept.len() == queues.len();
+                for rx in kept {
+                    all &= rx.await.is_ok();
+                }
+                if all {
+                    ack.ack();
                 }
             }
         }));
@@ -541,11 +557,13 @@ impl WiringParts {
         journal: Journal<Input, GroupState>,
         inputs: mpsc::Receiver<Input>,
         wipes: mpsc::Receiver<WipeRequest>,
+        mail: mpsc::Receiver<MailDelivery>,
     ) -> Wiring {
         Wiring {
             journal,
             inputs,
             wipes,
+            mail,
             self_tx: self.self_tx.clone(),
             outbound: self.outbound.clone(),
             model: Arc::clone(&self.model),

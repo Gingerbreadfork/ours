@@ -12,8 +12,8 @@ use ours_core::{Command, Effect, GroupState, Input, render_charter, render_decis
 use ours_mail::Mailer;
 use ours_model::{Classifier, Extractor, LargeModel, TimeResolver};
 use ours_types::{
-    GroupId, InboundEvent, Instant, Kind, Outbound, OutboundAction, Platform, PlatformMessageId,
-    PlatformRoomId, PlatformUserId,
+    GroupId, InboundEvent, InboundMail, Instant, Kind, Outbound, OutboundAction, Platform,
+    PlatformMessageId, PlatformRoomId, PlatformUserId,
 };
 use std::collections::{BTreeSet, HashMap};
 use std::path::PathBuf;
@@ -45,9 +45,14 @@ pub enum RunEnd {
     Wiped {
         inputs: mpsc::Receiver<Input>,
         wipes: mpsc::Receiver<WipeRequest>,
+        mail: mpsc::Receiver<MailDelivery>,
         done: WipeRequest,
     },
 }
+
+/// Inbound mail and a signal sent once the group has journaled it, so the
+/// mailbox marks it read only then.
+pub type MailDelivery = (InboundMail, oneshot::Sender<()>);
 
 impl std::fmt::Debug for RunEnd {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -96,6 +101,7 @@ pub struct GroupRunner {
     fired: mpsc::Receiver<Fired>,
     inputs: mpsc::Receiver<Input>,
     wipes: mpsc::Receiver<WipeRequest>,
+    mail: mpsc::Receiver<MailDelivery>,
     self_tx: mpsc::Sender<Input>,
     outbound: HashMap<Platform, mpsc::Sender<Outbound>>,
     model: Arc<dyn LargeModel>,
@@ -135,6 +141,7 @@ pub struct Wiring {
     pub inputs: mpsc::Receiver<Input>,
     /// Wipe requests from the admin page.
     pub wipes: mpsc::Receiver<WipeRequest>,
+    pub mail: mpsc::Receiver<MailDelivery>,
     pub self_tx: mpsc::Sender<Input>,
     pub outbound: HashMap<Platform, mpsc::Sender<Outbound>>,
     pub model: Arc<dyn LargeModel>,
@@ -219,6 +226,7 @@ impl GroupRunner {
             fired,
             inputs: wiring.inputs,
             wipes: wiring.wipes,
+            mail: wiring.mail,
             self_tx: wiring.self_tx,
             outbound: wiring.outbound,
             model: wiring.model,
@@ -354,9 +362,18 @@ impl GroupRunner {
             tokio::select! {
                 Some(input) = self.inputs.recv() => self.handle(input).await?,
                 Some(fired) = self.fired.recv() => self.handle(Input::TimerFired { id: fired.id }).await?,
+                Some((mail, kept)) = self.mail.recv() => {
+                    self.handle(Input::Mail(mail)).await?;
+                    let _ = kept.send(());
+                }
                 Some(done) = self.wipes.recv() => {
                     tracing::warn!(group = %self.id, seq = self.seq, "wipe requested; stopping the runner");
-                    return Ok(RunEnd::Wiped { inputs: self.inputs, wipes: self.wipes, done });
+                    return Ok(RunEnd::Wiped {
+                        inputs: self.inputs,
+                        wipes: self.wipes,
+                        mail: self.mail,
+                        done,
+                    });
                 }
                 changed = shutdown.changed() => {
                     if changed.is_err() || *shutdown.borrow() {

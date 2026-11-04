@@ -29,6 +29,7 @@ async fn a_wipe_request_ends_the_run_and_hands_the_queues_back() {
     let RunEnd::Wiped {
         inputs,
         wipes,
+        mail: _,
         done,
     } = end
     else {

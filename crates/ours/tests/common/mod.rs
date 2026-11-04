@@ -124,6 +124,7 @@ pub async fn start(store: Arc<dyn EventLog>) -> Running {
         journal: Journal::new(Arc::clone(&store)),
         inputs: queue_rx,
         wipes: wipe_rx,
+        mail: tokio::sync::mpsc::channel(1).1,
         self_tx: queue_tx,
         outbound: HashMap::from([(Platform::Sim, out_tx)]),
         model: Arc::new(FakeModel),

@@ -14,6 +14,6 @@ mod send;
 pub use config::{ImapConfig, MailConfig, SmtpConfig};
 pub use error::MailError;
 pub use parse::parse_eml;
-pub use poll::poll_loop;
-pub use recv::{DirInbox, ImapInbox, Inbox};
+pub use poll::{Ack, Delivery, poll_loop};
+pub use recv::{DirInbox, Fetched, ImapInbox, Inbox, Receipt};
 pub use send::{FileMailer, Mailer, SmtpMailer, generate_message_id};

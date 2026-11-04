@@ -94,6 +94,7 @@ async fn addressed_message_gets_an_ack_and_a_reply() {
         journal: Journal::new(Arc::clone(&store)),
         inputs: queue_rx,
         wipes: wipe_rx,
+        mail: tokio::sync::mpsc::channel(1).1,
         self_tx: queue_tx,
         outbound: HashMap::from([(Platform::Sim, out_tx)]),
         model: Arc::new(FakeModel),

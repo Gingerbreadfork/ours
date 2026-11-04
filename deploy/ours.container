@@ -13,6 +13,9 @@ ContainerName=ours
 Volume=/etc/ours/ours.toml:/etc/ours/ours.toml:ro,Z
 Volume=ours-data:/data:U
 EnvironmentFile=/etc/ours/env
+# The admin page is plain HTTP behind a token, on every interface so a
+# phone on the LAN can reach it. Behind a TLS proxy, publish it on
+# loopback instead: PublishPort=127.0.0.1:7777:7777
 PublishPort=7777:7777
 ReadOnly=true
 Tmpfs=/tmp

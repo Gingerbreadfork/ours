@@ -79,6 +79,12 @@ from `/etc/ours/ours.toml` and keeps its data in `/data`. Set
       --env-file /etc/ours/env \
       ghcr.io/gingerbreadfork/ours:0.1.0-rc.2
 
+`-p 7777:7777` publishes the admin page on every interface, over plain
+HTTP, so a phone on your network can open it. Anyone who can read the
+traffic can take the admin token. On a network you do not trust, publish
+it on loopback with `-p 127.0.0.1:7777:7777` and put a TLS proxy in front;
+see [admin.md](admin.md).
+
 `deploy/ours.container` is the same thing as a Podman quadlet. Copy it to
 `/etc/containers/systemd/` and run `systemctl daemon-reload`. Verify the
 image with `gh attestation verify oci://ghcr.io/gingerbreadfork/ours:0.1.0-rc.2 --repo Gingerbreadfork/ours`.

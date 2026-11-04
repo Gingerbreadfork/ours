@@ -22,7 +22,7 @@ use actions::{Actions, lock};
 use api::Api;
 use async_trait::async_trait;
 use event::Event;
-use ours_connector::Connector;
+use ours_connector::{Connector, ConnectorError};
 use ours_types::{Capabilities, InboundEvent, Instant, Outbound, OutboundAction, Platform};
 use slack_morphism::api::SlackApiAuthTestResponse;
 use slack_morphism::{SlackChannelId, SlackChannelInfo, SlackTs, SlackUserId};
@@ -136,10 +136,10 @@ impl Connector for SlackConnector {
         self: Box<Self>,
         inbound: mpsc::Sender<InboundEvent>,
         outbound: mpsc::Receiver<Outbound>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ConnectorError> {
         install_crypto_provider();
         let SlackConnector { config } = *self;
-        let tls = tls::client_config()?;
+        let tls = tls::client_config().map_err(|error| ConnectorError::Start(error.to_string()))?;
         let api = Arc::new(Api::new(tls.clone(), &config.bot_token, &config.app_token));
 
         // Events wait in an unbounded queue so a slow engine never stalls the socket.
@@ -271,7 +271,7 @@ async fn give_up(
     reason: String,
     forwarder: JoinHandle<()>,
     inbound: &mpsc::Sender<InboundEvent>,
-) -> anyhow::Result<()> {
+) -> Result<(), ConnectorError> {
     tracing::error!(%reason, "slack connector is down");
     let _ = forwarder.await;
     let _ = inbound
@@ -280,7 +280,7 @@ async fn give_up(
             reason: reason.clone(),
         })
         .await;
-    anyhow::bail!(reason)
+    Err(ConnectorError::Down(reason))
 }
 
 /// The Web API side of the state: the fetches `missing` asks for and the

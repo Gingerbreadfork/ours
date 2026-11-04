@@ -10,6 +10,20 @@ use tokio::sync::mpsc;
 
 pub use sim::{SimConnector, SimHandle};
 
+/// Why a connector stopped for good.
+#[derive(Debug, thiserror::Error)]
+pub enum ConnectorError {
+    /// The connector could not set itself up.
+    #[error("could not start: {0}")]
+    Start(String),
+    /// The platform connection is lost and will not come back by itself.
+    #[error("{0}")]
+    Down(String),
+    /// The other end of a channel was dropped.
+    #[error("{0} is gone")]
+    Closed(&'static str),
+}
+
 #[async_trait]
 pub trait Connector: Send + 'static {
     fn platform(&self) -> Platform;
@@ -22,5 +36,5 @@ pub trait Connector: Send + 'static {
         self: Box<Self>,
         inbound: mpsc::Sender<InboundEvent>,
         outbound: mpsc::Receiver<Outbound>,
-    ) -> anyhow::Result<()>;
+    ) -> Result<(), ConnectorError>;
 }

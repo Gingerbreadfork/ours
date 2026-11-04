@@ -27,7 +27,7 @@ use api::{Api, ApiError};
 use async_trait::async_trait;
 use frankenstein::types::User;
 use frankenstein::updates::UpdateContent;
-use ours_connector::Connector;
+use ours_connector::{Connector, ConnectorError};
 use ours_types::{
     Capabilities, InboundEvent, Instant, Outbound, OutboundAction, Platform, PlatformRole,
 };
@@ -166,14 +166,17 @@ impl Connector for TelegramConnector {
         self: Box<Self>,
         inbound: mpsc::Sender<InboundEvent>,
         outbound: mpsc::Receiver<Outbound>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ConnectorError> {
         let TelegramConnector {
             config,
             api_base,
             chats,
             state_dir,
         } = *self;
-        let api = Arc::new(Api::new(&api_base, &config.token)?);
+        let api = Arc::new(
+            Api::new(&api_base, &config.token)
+                .map_err(|error| ConnectorError::Start(error.to_string()))?,
+        );
 
         // Events wait in an unbounded queue so a slow engine never stalls polling.
         let (queue, queued) = mpsc::unbounded_channel();
@@ -303,7 +306,7 @@ async fn give_up(
     reason: String,
     forwarder: JoinHandle<()>,
     inbound: &mpsc::Sender<InboundEvent>,
-) -> anyhow::Result<()> {
+) -> Result<(), ConnectorError> {
     tracing::error!(%reason, "telegram connector is down");
     let _ = forwarder.await;
     let _ = inbound
@@ -312,7 +315,7 @@ async fn give_up(
             reason: reason.clone(),
         })
         .await;
-    anyhow::bail!(reason)
+    Err(ConnectorError::Down(reason))
 }
 
 /// The polling side: updates in, the fetches `missing` asks for, events

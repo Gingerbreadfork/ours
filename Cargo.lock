@@ -1804,9 +1804,9 @@ dependencies = [
 name = "ours-connector"
 version = "0.1.0-rc.2"
 dependencies = [
- "anyhow",
  "async-trait",
  "ours-types",
+ "thiserror 2.0.21",
  "tokio",
  "tracing",
 ]
@@ -1815,7 +1815,6 @@ dependencies = [
 name = "ours-connector-discord"
 version = "0.1.0-rc.2"
 dependencies = [
- "anyhow",
  "async-trait",
  "ours-connector",
  "ours-types",
@@ -1833,7 +1832,6 @@ dependencies = [
 name = "ours-connector-slack"
 version = "0.1.0-rc.2"
 dependencies = [
- "anyhow",
  "async-trait",
  "emojis",
  "futures",
@@ -1856,7 +1854,6 @@ dependencies = [
 name = "ours-connector-telegram"
 version = "0.1.0-rc.2"
 dependencies = [
- "anyhow",
  "async-trait",
  "frankenstein",
  "ours-connector",

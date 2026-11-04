@@ -9,7 +9,6 @@ description = "Discord adapter for Ours, built on twilight"
 [dependencies]
 ours-types = { workspace = true }
 ours-connector = { workspace = true }
-anyhow = { workspace = true }
 async-trait = { workspace = true }
 serde_json = { workspace = true }
 thiserror = { workspace = true }

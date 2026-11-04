@@ -1,7 +1,7 @@
 //! An in-memory connector. Tests and the replay harness push inbound events
 //! through `SimHandle` and read back what the engine asked to send.
 
-use crate::Connector;
+use crate::{Connector, ConnectorError};
 use async_trait::async_trait;
 use ours_types::{
     Capabilities, InboundEvent, Outbound, OutboundAction, Platform, PlatformMessageId,
@@ -25,11 +25,11 @@ pub struct SimHandle {
 
 impl SimHandle {
     /// Deliver an event as if the platform had produced it.
-    pub async fn push(&self, event: InboundEvent) -> anyhow::Result<()> {
+    pub async fn push(&self, event: InboundEvent) -> Result<(), ConnectorError> {
         self.inbound
             .send(event)
             .await
-            .map_err(|_| anyhow::anyhow!("sim connector is gone"))
+            .map_err(|_| ConnectorError::Closed("the sim connector"))
     }
 
     /// Everything the engine has asked to send so far, in order, draining it.
@@ -96,7 +96,7 @@ impl Connector for SimConnector {
         mut self: Box<Self>,
         inbound: mpsc::Sender<InboundEvent>,
         mut outbound: mpsc::Receiver<Outbound>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ConnectorError> {
         loop {
             tokio::select! {
                 event = self.inbound_src.recv() => match event {

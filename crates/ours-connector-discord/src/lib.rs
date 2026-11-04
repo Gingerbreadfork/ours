@@ -18,7 +18,7 @@ pub use invite::{INVITE_PERMISSIONS, invite_url};
 
 use actions::Actions;
 use async_trait::async_trait;
-use ours_connector::Connector;
+use ours_connector::{Connector, ConnectorError};
 use ours_types::{Capabilities, InboundEvent, Instant, Outbound, Platform};
 use state::{Cache, DmRooms, Step};
 use std::collections::HashSet;
@@ -177,7 +177,7 @@ impl Connector for DiscordConnector {
         self: Box<Self>,
         inbound: mpsc::Sender<InboundEvent>,
         outbound: mpsc::Receiver<Outbound>,
-    ) -> anyhow::Result<()> {
+    ) -> Result<(), ConnectorError> {
         install_crypto_provider();
         let DiscordConnector { config, allowed } = *self;
 
@@ -435,7 +435,7 @@ async fn give_up(
     reason: String,
     forwarder: JoinHandle<()>,
     inbound: &mpsc::Sender<InboundEvent>,
-) -> anyhow::Result<()> {
+) -> Result<(), ConnectorError> {
     tracing::error!(%reason, "discord gateway is down");
     let _ = forwarder.await;
     let _ = inbound
@@ -444,7 +444,7 @@ async fn give_up(
             reason: reason.clone(),
         })
         .await;
-    anyhow::bail!(reason)
+    Err(ConnectorError::Down(reason))
 }
 
 /// Pass queued events on to the engine, in order, until either side closes.

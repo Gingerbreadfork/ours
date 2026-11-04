@@ -9,7 +9,6 @@ description = "Telegram through the Bot API: groups, forum topics, admins as lea
 [dependencies]
 ours-types = { workspace = true }
 ours-connector = { workspace = true }
-anyhow = { workspace = true }
 async-trait = { workspace = true }
 # client-reqwest only: reqwest comes from the workspace, rustls on aws-lc-rs.
 frankenstein = { version = "0.52.1", default-features = false, features = ["client-reqwest"] }

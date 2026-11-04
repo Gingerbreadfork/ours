@@ -9,7 +9,6 @@ description = "Slack through Socket Mode: threads, externals as guests, admins a
 [dependencies]
 ours-types = { workspace = true }
 ours-connector = { workspace = true }
-anyhow = { workspace = true }
 async-trait = { workspace = true }
 emojis = "0.9.1"
 futures = { workspace = true }

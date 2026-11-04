@@ -8,14 +8,12 @@
 <p align="center"><strong>The self-hosted AI agent for groups, companies, friends and families.</strong> A member of your group chat that remembers for the group, closes its decisions, keeps its promises and its tab, acts first and can be told "undo".</p>
 
 <p align="center">
-  <a href="#install">Install</a> ·
-  <a href="#what-it-does">What it does</a> ·
-  <a href="docs/privacy.md">Privacy</a> ·
-  <a href="DESIGN.md">Design</a> ·
-  <a href="CHANGELOG.md">Changelog</a>
+  <a href="LICENSE"><img src="https://img.shields.io/badge/License-MIT-blue.svg" alt="MIT"></a>
+  <a href="https://github.com/Gingerbreadfork/ours/actions/workflows/ci.yml"><img src="https://github.com/Gingerbreadfork/ours/actions/workflows/ci.yml/badge.svg" alt="ci"></a>
+  <a href="https://github.com/Gingerbreadfork/ours/releases"><img src="https://img.shields.io/badge/Rust-1.99%2B-orange" alt="Rust 1.99+"></a>
 </p>
 
-<p align="center">Discord, Slack and Telegram · one binary, one file per group · MIT</p>
+<p align="center">Discord, Slack and Telegram · one binary, one SQLite file per group</p>
 
 ---
 
@@ -67,6 +65,8 @@ Noa:     I haven't seen any budget discussion in this room. If you want,
 
 The guest was answered from the room, never obeyed, and never told what the room said behind her. Not because the prompt asked nicely: the role is computed before the model is called and the permitted actions are enforced after it.
 
+Transcripts are verbatim from 2026-11-04, so "tomorrow" in them is relative to that day. Measured, not asserted: fourteen scenarios scored against a plain wrapper on the same model, Ours 100, the wrapper 72 ([results](benchmark/RESULTS.md)).
+
 ## What it does
 
 **Remembers for the group.** Facts are kept with who said them, where and when, and are said back only where they were seen. "Noa, what was that bar with the weird cocktails?" gets "Hobson's. Priya said they were weird. Source: Priya in #general, 2026-11-02". Everyone can ask "what do you know about me", say "forget that" or "forget me", and the words leave the journal on disk, not just the answer.
@@ -89,17 +89,22 @@ Everything a member can say is in [docs/say.md](docs/say.md).
 
 ## Install
 
-Download a release, or build with `cargo build --release`.
+Download a [release](https://github.com/Gingerbreadfork/ours/releases) (Linux x86_64 and aarch64, checksums in `SHA256SUMS`), or build with `cargo build --release` on Rust 1.99 or newer.
 
 ```sh
 tar xzf ours-<version>-<arch>-linux.tar.gz && cd ours-<version>-<arch>-linux   # x86_64 or aarch64
 cp ours.example.toml ours.toml          # the model endpoint, the group, its rooms
-export OURS_DISCORD_TOKEN=...             # or the Slack tokens, or OURS_TELEGRAM_TOKEN
+export OURS_DISCORD_TOKEN=...           # Discord bot token
+export OURS_SLACK_BOT_TOKEN=...         # xoxb-, with OURS_SLACK_APP_TOKEN, xapp-
+export OURS_TELEGRAM_TOKEN=...          # Telegram bot token
+export OURS_MODEL_API_KEY=...           # only if the model endpoint needs one
 ./ours check
 ./ours run
 ```
 
-`ours run` prints the admin page link and a QR code for your phone. Invite the bot to a room and it introduces itself to whoever added it, in a DM: what to call it (every group names its own), what kind of group this is, which voice to use, who leads. Then it watches for a day or three and tells the leads what it would have done, with 👍 and 👎 to tune it, before it says anything in the room.
+For Discord, `ours invite` prints the invite link; for Slack, `ours manifest` prints the app manifest. See [Discord](docs/discord.md) and [Slack](docs/slack.md).
+
+`ours run` prints the admin page link and a QR code for your phone; set `OURS_ADMIN_TOKEN` to keep that link the same across restarts. Invite the bot to a room and it introduces itself to whoever added it, in a DM: what to call it (every group names its own), what kind of group this is, which voice to use, who leads. Then it watches for a day or three and tells the leads what it would have done, with 👍 and 👎 to tune it, before it says anything in the room.
 
 It needs an OpenAI-compatible chat endpoint. A local llama.cpp server with a 30B open-weights model answers in a few seconds; a hosted model works the same way. The container image and the systemd unit are in [docs/install.md](docs/install.md).
 
@@ -160,6 +165,20 @@ The compliance page at `/compliance` states what is kept, where, for how long, a
 | [Operations](docs/operations.md) | backup, upgrade, logs, replay, the benchmark, telemetry |
 | [Privacy](docs/privacy.md) · [Schemas](docs/schema.md) | the statement a workplace can read, and the published contract |
 | [DESIGN.md](DESIGN.md) | the whole plan |
+| [Benchmark](benchmark/RESULTS.md) | the fourteen scenarios and how the scoring works |
+
+## Status
+
+0.1.0-rc.2. Linux binaries; Discord, Slack and Telegram; calendar as ICS feeds only. Not yet: calendar sync beyond ICS, receipt photos, encryption at rest, changing settings from the admin page, federation, and a children mode. See the changelog for the full list.
+
+## Development
+
+    cargo build --release
+    scripts/check.sh                              # fmt, clippy -D warnings, every test
+    cargo test -p ours-core                       # one crate
+    cargo run -p ours -- bench --agent rules      # the benchmark, no model needed
+
+[CONTRIBUTING.md](CONTRIBUTING.md) is the engineering contract; [DESIGN.md](DESIGN.md) is the plan.
 
 ## Licence
 

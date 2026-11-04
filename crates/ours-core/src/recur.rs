@@ -892,6 +892,14 @@ fn create(
             OTHER_LEAD_SECONDS,
         ),
     };
+    // The same thing set up again in a room changes the one already there.
+    if let Some(at) = state
+        .recurrences
+        .iter()
+        .position(|r| r.room == message.room && r.kind == kind)
+    {
+        return restate(state, at, message, rule, schedule.label, now, fx);
+    }
     let Some(next) = first_instance(&rrule, now, now, lead, &tz) else {
         return "I couldn't work out when that falls.".to_owned();
     };
@@ -914,18 +922,7 @@ fn create(
         silent: 0,
         took: Vec::new(),
     };
-    let echo = instance_echo(state, &rec, now);
-    let action = match &rec.kind {
-        RecurKind::Proposal { .. } => "ask who's in",
-        RecurKind::Reminder { .. } => "remind the room",
-        RecurKind::Commitment { .. } => "put it on your list",
-    };
-    let text = format!(
-        "Set: {}, {}. Next is {echo}; I'll {action} {} before.",
-        rec.label,
-        schedule_words(&rule),
-        lead_words(lead)
-    );
+    let text = format!("Set: {}", set_words(state, &rec, &rule, now));
     fx.push(Effect::Notice(format!(
         "Recurrence in {}: {} ({}).",
         state.room_label(&rec.room),
@@ -935,6 +932,76 @@ fn create(
     state.recurrences.push(rec);
     arm(state, &id, now, fx);
     text
+}
+
+/// "dinner, every month on the first Thursday. Next is Thursday the 3rd;
+/// I'll ask who's in three days before."
+fn set_words(state: &GroupState, rec: &Recurrence, rule: &Rule, now: Instant) -> String {
+    let action = match &rec.kind {
+        RecurKind::Proposal { .. } => "ask who's in",
+        RecurKind::Reminder { .. } => "remind the room",
+        RecurKind::Commitment { .. } => "put it on your list",
+    };
+    format!(
+        "{}, {}. Next is {}; I'll {action} {} before.",
+        rec.label,
+        schedule_words(rule),
+        instance_echo(state, rec, now),
+        lead_words(rec.lead_seconds)
+    )
+}
+
+/// The recurrence at `at` set up again. The same rule leaves it as it is,
+/// or brings it back if paused; a new rule replaces the old one.
+fn restate(
+    state: &mut GroupState,
+    at: usize,
+    message: &Message,
+    rule: Rule,
+    label: String,
+    now: Instant,
+    fx: &mut Vec<Effect>,
+) -> String {
+    let tz = state.timezone.clone();
+    let rrule = rule.to_rrule();
+    let Some(rec) = state.recurrences.get(at) else {
+        return String::new();
+    };
+    let id = rec.id.clone();
+    if rec.rrule == rrule {
+        if rec.paused {
+            return resume(state, &id, now, fx);
+        }
+        return format!(
+            "Already set: {}, {}. Next is {}.",
+            rec.label,
+            schedule_words(&rule),
+            instance_echo(state, rec, now)
+        );
+    }
+    let Some(next) = first_instance(&rrule, now, now, rec.lead_seconds, &tz) else {
+        return "I couldn't work out when that falls.".to_owned();
+    };
+    let Some(rec) = state.recurrences.get_mut(at) else {
+        return String::new();
+    };
+    rec.rrule = rrule;
+    rec.next = next;
+    rec.anchor = next;
+    rec.has_time = rule.at.is_some();
+    rec.paused = false;
+    rec.silent = 0;
+    rec.label = label;
+    rec.source = message.id.clone();
+    let rec = rec.clone();
+    arm(state, &id, now, fx);
+    fx.push(Effect::Notice(format!(
+        "Recurrence in {} changed: {} ({}).",
+        state.room_label(&rec.room),
+        rec.label,
+        rec.rrule
+    )));
+    format!("Changed: {}", set_words(state, &rec, &rule, now))
 }
 
 fn instance_echo(state: &GroupState, rec: &Recurrence, now: Instant) -> String {

@@ -192,3 +192,25 @@ fn a_guests_own_data_still_works() {
             .any(|(t, _)| t.starts_with(DECLINE_PREFIX))
     );
 }
+
+#[test]
+fn a_deleted_request_is_withdrawn_from_the_leads() {
+    let mut sim = work();
+    sim.dm_room("sam");
+    let ask = sim.say("launch", "dana", ASK);
+    let flag = sim.last_dm_to("sam").expect("flag sent");
+    assert_eq!(sim.state.deferrals.len(), 2);
+
+    sim.feed(Input::Inbound(ours_types::InboundEvent::MessageDeleted {
+        room: "launch".into(),
+        id: ask.id.clone(),
+    }));
+    assert!(sim.state.deferrals.is_empty());
+
+    // A lead's ✅ afterwards brings nothing back.
+    let fx = sim.react("dm-sam", &flag, "sam", CHECK);
+    assert!(model_requests(&fx).is_empty());
+    assert!(messages(&fx).is_empty());
+    let room = &sim.state.rooms[&PlatformRoomId::new("launch")];
+    assert!(!room.messages.iter().any(|m| m.text == ASK));
+}

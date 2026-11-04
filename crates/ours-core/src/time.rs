@@ -224,22 +224,30 @@ pub fn event_start(meaning: &TimeMeaning, zone_name: &str) -> Option<Instant> {
 }
 
 /// The first and last instants a meaning covers: a whole day for a day
-/// without a time, the moment itself otherwise.
-pub fn bounds(meaning: &TimeMeaning) -> Option<(Instant, Instant)> {
-    const DAY: i64 = 24 * 60 * 60;
+/// without a time, the moment itself otherwise. A day lasts as long as it
+/// does in the named zone, so 23 or 25 hours when the clocks change.
+pub fn bounds(meaning: &TimeMeaning, zone_name: &str) -> Option<(Instant, Instant)> {
+    let whole_day = |at: Instant| (at, at.plus_seconds(day_seconds(at, zone_name)));
     match meaning {
         TimeMeaning::Instant { at, has_time: true } => Some((*at, *at)),
         TimeMeaning::Instant {
             at,
             has_time: false,
-        } => Some((*at, at.plus_seconds(DAY))),
+        } => Some(whole_day(*at)),
         TimeMeaning::Span { start, end } => Some((*start, *end)),
-        TimeMeaning::Ambiguous { candidates } => {
-            let first = *candidates.first()?;
-            Some((first, first.plus_seconds(DAY)))
-        }
+        TimeMeaning::Ambiguous { candidates } => candidates.first().copied().map(whole_day),
         TimeMeaning::Recurrence { first, .. } => Some((*first, *first)),
         TimeMeaning::None => None,
+    }
+}
+
+/// How long the local day holding `at` lasts in the named zone, in seconds.
+fn day_seconds(at: Instant, zone_name: &str) -> i64 {
+    const DAY: i64 = 24 * 60 * 60;
+    let date = date_of(at, zone_name);
+    match (at_on(date, 0, 0, zone_name), day_end(date, zone_name)) {
+        (Some(start), Some(end)) => end.seconds_since(start),
+        _ => DAY,
     }
 }
 
@@ -745,6 +753,9 @@ fn span_echo(start: Date, last: Date, today: Date) -> String {
             format!("{} {}", month_name(start.month()), start.year())
         };
     }
+    if start == today && last == start.last_of_month() && days > 7 {
+        return format!("the rest of {}", month_name(start.month()));
+    }
     if days <= 1 {
         return day_echo(start, today);
     }
@@ -1048,6 +1059,8 @@ fn in_from_now(cx: &Cx, toks: &[String], i: usize) -> Option<Found> {
             start = Date::new(cx.today.year() + 1, month, 1).ok()?;
         }
         let end = cx.month_start(start, 1)?;
+        // The month under way runs from today, as "this week" does.
+        let start = start.max(cx.today);
         return Some(found(i, 2, When::Days { start, end }));
     }
     let (n, mut k) = if first == "a" && word(toks, i + 2) == "couple" {

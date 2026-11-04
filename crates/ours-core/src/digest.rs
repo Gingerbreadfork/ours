@@ -27,6 +27,8 @@ use tracing::debug;
 
 /// Lines in a digest, at most.
 pub const DIGEST_LINES: usize = 6;
+/// Items on one digest line before "and N more".
+pub const DIGEST_ITEMS: usize = 5;
 /// The day-of line goes this long before the earliest timed entry.
 pub const DAY_OF_LEAD_SECONDS: i64 = 2 * 60 * 60;
 /// The local hour it goes when nothing that day has a time.
@@ -239,9 +241,14 @@ pub fn digest(
         ("Open", open),
         ("Away", away),
     ] {
-        if !items.is_empty() {
-            lines.push(format!("{label}: {}.", items.join("; ")));
+        if items.is_empty() {
+            continue;
         }
+        let mut shown = items.iter().take(DIGEST_ITEMS).cloned().collect::<Vec<_>>();
+        if items.len() > DIGEST_ITEMS {
+            shown.push(format!("and {} more", items.len() - DIGEST_ITEMS));
+        }
+        lines.push(format!("{label}: {}.", shown.join("; ")));
     }
     lines.truncate(DIGEST_LINES);
     Some(lines.join("\n"))
@@ -273,7 +280,7 @@ fn entries_on<'a>(state: &'a GroupState, room: &PlatformRoomId, day: Date) -> Ve
         .calendar
         .iter()
         .filter(|e| e.room.as_ref() == Some(room))
-        .filter_map(|e| bounds(&e.when).map(|(start, _)| (start, e)))
+        .filter_map(|e| bounds(&e.when, tz).map(|(start, _)| (start, e)))
         .filter(|(start, _)| date_of(*start, tz) == day)
         .collect();
     out.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.decision.cmp(&b.1.decision)));
@@ -295,7 +302,7 @@ fn days(state: &mut GroupState, now: Instant, fx: &mut Vec<Effect>) {
     let today = date_of(now, &tz);
     let mut wanted: Vec<(PlatformRoomId, Date, DecisionId)> = Vec::new();
     for e in &state.calendar {
-        let (Some(room), Some((start, _))) = (e.room.as_ref(), bounds(&e.when)) else {
+        let (Some(room), Some((start, _))) = (e.room.as_ref(), bounds(&e.when, &tz)) else {
             continue;
         };
         if state.rooms.get(room).is_none_or(|r| r.is_dm()) {
@@ -319,7 +326,7 @@ fn days(state: &mut GroupState, now: Instant, fx: &mut Vec<Effect>) {
                         .calendar
                         .iter()
                         .find(|e| &e.decision == entry)
-                        .and_then(|e| bounds(&e.when))
+                        .and_then(|e| bounds(&e.when, &tz))
                         .is_some_and(|(start, _)| date_of(start, &tz) == day)
             }
             _ => false,
@@ -349,7 +356,7 @@ fn day_of_time(state: &GroupState, room: &PlatformRoomId, day: Date) -> Option<I
     let timed = entries
         .iter()
         .filter(|e| has_time(e))
-        .filter_map(|e| bounds(&e.when).map(|(s, _)| s))
+        .filter_map(|e| bounds(&e.when, tz).map(|(s, _)| s))
         .min();
     let at = match timed {
         Some(start) => start.plus_seconds(-DAY_OF_LEAD_SECONDS),
@@ -384,7 +391,7 @@ pub(crate) fn on_day_of(
         .calendar
         .iter()
         .find(|e| &e.decision == entry)
-        .and_then(|e| bounds(&e.when))
+        .and_then(|e| bounds(&e.when, &tz))
         .map(|(start, _)| date_of(start, &tz))
     else {
         return;
@@ -420,7 +427,7 @@ pub fn day_line(state: &GroupState, room: &PlatformRoomId, day: Date) -> Option<
     let mut parts: Vec<String> = entries
         .iter()
         .map(|e| {
-            let at = bounds(&e.when).map(|(s, _)| zone::local(s, tz));
+            let at = bounds(&e.when, tz).map(|(s, _)| zone::local(s, tz));
             match at.filter(|_| has_time(e)) {
                 Some(local) => format!(
                     "{} at {}",

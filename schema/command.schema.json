@@ -543,7 +543,7 @@
         "end",
         "weekdays_only"
       ],
-      "description": "Local hours in the group's zone when unprompted messages may be sent."
+      "description": "Local hours in the group's zone when unprompted messages may be sent.\nThe span may wrap midnight; equal start and end means the whole day."
     },
     "Jobs": {
       "type": "object",

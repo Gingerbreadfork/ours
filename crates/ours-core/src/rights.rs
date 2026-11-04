@@ -278,6 +278,7 @@ pub(crate) fn forget_me(
     }
     state.patterns.forget(&user);
     state.zones.remove(&user);
+    state.welcomed.remove(&user);
     crate::tab::forget(state, &user, now);
     crate::commitment::forget(state, &user, now, fx);
     let name = state.display_name(&message.room, &user);

@@ -32,6 +32,7 @@ pub const SENDING_NOW: &str =
     "That's going out now; say undo again in a moment and I'll send a cancellation.";
 pub const POLL_CLOSED: &str =
     "That poll has closed and the decision stands; say re-vote to open it again.";
+pub const POLL_LAPSED: &str = "That poll already lapsed; say re-vote to open it again.";
 const UNDO_RULE: &str = "undo takes back the agent's latest action here, or the one named";
 
 /// Who is undoing: `by` carries it out; `asked` is the member whose
@@ -184,13 +185,11 @@ fn blocked(state: &GroupState, record: &ActionRecord) -> Option<String> {
     match &record.undo {
         Undo::None { why } => Some(format!("That one can't be undone: {why}.")),
         Undo::Delete { room, .. } if !can_delete(state, room) => Some(CANT_DELETE.to_owned()),
-        Undo::EndPoll { proposal } => {
-            let closed = state
-                .proposals
-                .get(proposal)
-                .is_some_and(|p| matches!(p.status, ProposalStatus::Closed(_)));
-            closed.then(|| POLL_CLOSED.to_owned())
-        }
+        Undo::EndPoll { proposal } => match state.proposals.get(proposal).map(|p| &p.status) {
+            Some(ProposalStatus::Closed(_)) => Some(POLL_CLOSED.to_owned()),
+            Some(ProposalStatus::Expired) => Some(POLL_LAPSED.to_owned()),
+            _ => None,
+        },
         _ => None,
     }
 }

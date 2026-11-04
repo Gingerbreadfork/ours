@@ -184,6 +184,10 @@ pub struct GroupState {
     /// delivered twice is read once.
     #[serde(default)]
     pub mail_seen: VecDeque<String>,
+    /// Members who had the join DM or did not need it, so a join reported
+    /// again after a restart gets no second DM.
+    #[serde(default)]
+    pub welcomed: BTreeSet<PlatformUserId>,
 }
 
 /// The tab's currency until the host sets one.
@@ -466,6 +470,7 @@ impl GroupState {
             legal_hold: false,
             legal_hold_since: None,
             mail_seen: VecDeque::new(),
+            welcomed: BTreeSet::new(),
         }
     }
 

@@ -250,23 +250,25 @@ pub(crate) fn delete(
     }));
 }
 
-/// Replaces the text of one of the agent's messages.
+/// Replaces the text of one of the agent's messages and returns the edit's id.
 pub(crate) fn edit(
     state: &mut GroupState,
     fx: &mut Vec<Effect>,
     room: &PlatformRoomId,
     message: &PlatformMessageId,
     text: impl Into<String>,
-) {
+) -> ActionId {
     let action = OutboundAction::EditMessage {
         room: room.clone(),
         id: message.clone(),
         text: text.into(),
     };
+    let id = state.mint_action();
     fx.push(Effect::Send(Outbound {
-        id: state.mint_action(),
+        id: id.clone(),
         action,
     }));
+    id
 }
 
 /// Shows `room` that the agent is writing, where its platform can. Nothing

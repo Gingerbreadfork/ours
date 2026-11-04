@@ -4,7 +4,9 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ours_core::sim::{Sim, dms, member, messages, model_requests, notices, texts};
-use ours_core::{Command, Effect, Input, LeadsRule, Stage, render_charter, settings_summary};
+use ours_core::{
+    Command, Effect, GroupState, Input, LeadsRule, Stage, render_charter, settings_summary,
+};
 use ours_types::{
     InboundEvent, Kind, Member, OutboundAction, Platform, PlatformRole, PlatformRoomId, Room,
     RoomKind,
@@ -658,4 +660,173 @@ fn an_old_set_agent_name_line_decodes_as_not_from_the_host() {
     state.as_object_mut().unwrap().remove("name_from_host");
     let restored = ours_core::GroupState::restore(&state.to_string()).unwrap();
     assert!(!restored.name_from_host);
+}
+
+const JOIN_LINE: &str = "Hi Kim, I'm Q, this group's agent. I keep plans, decisions and commitments from its rooms and take instructions from everyone in the group. I never report on anyone, and leads see only what you see. Whoever runs me can see everything. Say \"what do you know about me\" here to see what I hold on you, or \"forget me\" to delete it.";
+
+fn join(sim: &mut Sim, room: &str, member: Member) -> Vec<Effect> {
+    let at = sim.now;
+    sim.feed(Input::Inbound(InboundEvent::MemberJoined {
+        room: room.into(),
+        member,
+        at,
+    }))
+}
+
+#[test]
+fn a_new_member_gets_one_dm_and_the_room_hears_nothing() {
+    let (mut sim, _) = added_by_olu();
+    // Joining while the first conversation runs: the room line covers them.
+    let early = join(
+        &mut sim,
+        "general",
+        member("ash", "Ash", PlatformRole::Regular),
+    );
+    assert!(dms(&early).is_empty());
+    sim.dm("olu", "skip");
+    assert_eq!(sim.state.setup.stage, Stage::Done);
+    sim.say("general", "sam", "Q, poll thai or pizza");
+
+    let joined = join(
+        &mut sim,
+        "general",
+        member("kim", "Kim", PlatformRole::Regular),
+    );
+    let sent = dms(&joined);
+    assert_eq!(sent.len(), 1, "{sent:?}");
+    assert_eq!(sent[0].0.as_str(), "kim");
+    assert!(sent[0].1.starts_with(JOIN_LINE), "{}", sent[0].1);
+    assert!(
+        sent[0]
+            .1
+            .contains("\nIn #general now:\nOpen: Thai or Pizza, 0 votes"),
+        "{}",
+        sent[0].1
+    );
+    assert!(texts(&joined).is_empty());
+    assert!(
+        notices(&joined)
+            .iter()
+            .any(|n| n.starts_with("Sent Kim the join message"))
+    );
+
+    // Reported again, after a restart from the snapshot, it is not repeated.
+    let json = sim.state.snapshot().unwrap();
+    sim.state = GroupState::restore(&json).unwrap();
+    sim.feed(Input::Inbound(InboundEvent::MemberLeft {
+        room: "general".into(),
+        user: "kim".into(),
+        at: sim.now,
+    }));
+    assert!(
+        dms(&join(
+            &mut sim,
+            "general",
+            member("kim", "Kim", PlatformRole::Regular)
+        ))
+        .is_empty()
+    );
+
+    // Nor does anyone already in the group, a bot, or the agent itself.
+    sim.room("trips", "trips", &[("sam", "Sam", PlatformRole::Regular)]);
+    assert!(
+        dms(&join(
+            &mut sim,
+            "trips",
+            member("priya", "Priya", PlatformRole::Regular)
+        ))
+        .is_empty()
+    );
+    let bot = Member {
+        is_bot: true,
+        ..member("dicebot", "DiceBot", PlatformRole::Regular)
+    };
+    assert!(dms(&join(&mut sim, "general", bot)).is_empty());
+    let me = Member {
+        is_bot: true,
+        ..member(ours_core::sim::ME, "Ours", PlatformRole::Regular)
+    };
+    assert!(dms(&join(&mut sim, "trips", me)).is_empty());
+}
+
+#[test]
+fn the_join_dm_goes_out_while_observing_and_a_refusal_stays_out_of_the_room() {
+    let mut sim = Sim::observing(Kind::Friends);
+    sim.room(
+        "general",
+        "general",
+        &[
+            ("olu", "Olu", PlatformRole::Owner),
+            ("sam", "Sam", PlatformRole::Regular),
+        ],
+    );
+    sim.dm("olu", "keep");
+    sim.dm("olu", "skip");
+    assert!(sim.state.is_observing());
+
+    // It is the disclosure, not an interjection, so watching does not hold it.
+    let joined = join(
+        &mut sim,
+        "general",
+        member("kim", "Kim", PlatformRole::Regular),
+    );
+    assert_eq!(dms(&joined).len(), 1);
+    assert!(dms(&joined)[0].1.starts_with(JOIN_LINE));
+
+    // A platform that will not DM them leaves a note for the host only.
+    sim.refuse_dms_to("jo");
+    let refused = join(
+        &mut sim,
+        "general",
+        member("jo", "Jo", PlatformRole::Regular),
+    );
+    assert_eq!(dms(&refused).len(), 1);
+    assert!(texts(&refused).is_empty());
+    assert!(
+        notices(&refused)
+            .iter()
+            .any(|n| n.starts_with("A DM failed to send"))
+    );
+    assert!(sim.state.welcomed.contains(&"jo".into()));
+}
+
+#[test]
+fn a_snapshot_from_before_the_join_dm_still_loads() {
+    let (mut sim, _) = added_by_olu();
+    sim.dm("olu", "skip");
+    let mut json = serde_json::to_value(&sim.state).unwrap();
+    json.as_object_mut().unwrap().remove("welcomed");
+    sim.state = GroupState::restore(&json.to_string()).unwrap();
+    assert!(sim.state.welcomed.is_empty());
+    let joined = join(
+        &mut sim,
+        "general",
+        member("kim", "Kim", PlatformRole::Regular),
+    );
+    assert_eq!(dms(&joined).len(), 1);
+}
+
+#[test]
+fn forget_me_lets_a_later_join_bring_the_disclosure_again() {
+    let (mut sim, _) = added_by_olu();
+    sim.dm("olu", "skip");
+    let first = join(
+        &mut sim,
+        "general",
+        member("kim", "Kim", PlatformRole::Regular),
+    );
+    assert_eq!(dms(&first).len(), 1);
+    sim.dm("kim", "forget me");
+    assert!(!sim.state.welcomed.contains(&"kim".into()));
+    sim.feed(Input::Inbound(InboundEvent::MemberLeft {
+        room: "general".into(),
+        user: "kim".into(),
+        at: sim.now,
+    }));
+    let again = join(
+        &mut sim,
+        "general",
+        member("kim", "Kim", PlatformRole::Regular),
+    );
+    assert_eq!(dms(&again).len(), 1);
 }

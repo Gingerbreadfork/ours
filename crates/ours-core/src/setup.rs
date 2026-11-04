@@ -1,14 +1,16 @@
 //! The first conversation (DESIGN.md section 7): the person who added the
 //! agent is asked by DM what to call it, what kind of group this is, which
 //! of two starter voices to use, and whom to listen to, then told what it
-//! will and won't do; then the room gets one line saying who it is. A platform that will
-//! not DM them first gets a line in the room instead, and a lead or host
-//! may take it over by saying "setup" once three days have passed.
+//! will and won't do; then the room gets one line saying who it is. A
+//! platform that will not DM them first gets a line in the room instead,
+//! and a lead or host may take it over by saying "setup" once three days
+//! have passed. Anyone who joins later gets the same by one DM.
 
 use crate::effect::{Effect, send, send_dm};
 use crate::leads::{self, decline_line, join_names, lead_names};
 use crate::observe::span;
 use crate::persona::{self, Starter};
+use crate::pin;
 use crate::profile::LeadsRule;
 use crate::reactions::{self, Meaning};
 use crate::sentence::{self, KIND_WORDS, LeadsSentence, Sentence, parse_kind};
@@ -837,22 +839,8 @@ pub fn summary(state: &GroupState) -> String {
 /// The one line to the room: who it is, what it keeps, whom it listens to,
 /// how to see and delete your own data, and that the host sees everything.
 pub fn room_line(state: &GroupState, room: &PlatformRoomId) -> String {
-    let listens = if state.profile.leads == LeadsRule::Everyone {
-        "everyone here".to_owned()
-    } else {
-        let names = lead_names(state, room);
-        if names.is_empty() {
-            "the leads the host names".to_owned()
-        } else {
-            join_names(&names, "and")
-        }
-    };
-    let hosts: Vec<String> = state.hosts.iter().map(|u| state.name_of(u)).collect();
-    let host = match hosts.as_slice() {
-        [] => "Whoever runs me can see everything.".to_owned(),
-        [one] => format!("{one} runs me and can see everything."),
-        many => format!("{} run me and can see everything.", join_names(many, "and")),
-    };
+    let listens = listens(state, room, "everyone here");
+    let host = host_sees(state);
     let feed = if state.feed_base.is_some() {
         " Ask me for the calendar link to follow the group's calendar."
     } else {
@@ -863,6 +851,104 @@ pub fn room_line(state: &GroupState, room: &PlatformRoomId) -> String {
         state.agent_name,
         reactions_here(state, room)
     )
+}
+
+/// The one DM a new member gets (DESIGN.md sections 8 and 15): who it is,
+/// what it keeps, whom it listens to, that nobody gets reports, that the
+/// host sees everything, how to see or delete their data, and what is on in
+/// the room they joined.
+pub fn join_line(
+    state: &GroupState,
+    room: &PlatformRoomId,
+    user: &PlatformUserId,
+    now: Instant,
+) -> String {
+    let mut text = format!(
+        "Hi {}, I'm {}, this group's agent. I keep plans, decisions and commitments from its rooms and take instructions from {}. I never report on anyone, and leads see only what you see. {} Say \"what do you know about me\" here to see what I hold on you, or \"forget me\" to delete it.",
+        state.display_name(room, user),
+        state.agent_name,
+        listens(state, room, "everyone in the group"),
+        host_sees(state)
+    );
+    let on = pin::state_lines(state, room, now);
+    if !on.is_empty() {
+        text.push_str(&format!(
+            "\nIn {} now:\n{}",
+            state.room_label(room),
+            on.join("\n")
+        ));
+    }
+    text
+}
+
+/// `member` joined `room`: someone new to the group gets the join DM, once.
+/// Bots, people already in the group and anyone joining while the first
+/// conversation runs, whom its room line covers, get nothing.
+pub(crate) fn welcome(
+    state: &mut GroupState,
+    room: &PlatformRoomId,
+    member: &Member,
+    now: Instant,
+    fx: &mut Vec<Effect>,
+) {
+    let user = &member.id;
+    if member.is_bot
+        || state.is_me(user)
+        || state.rooms.get(room).is_none_or(|r| r.is_dm())
+        || !state.welcomed.insert(user.clone())
+    {
+        return;
+    }
+    let setting_up = !matches!(state.setup.stage, Stage::NotStarted | Stage::Done);
+    let known = state
+        .rooms
+        .iter()
+        .filter(|(id, r)| *id != room && !r.is_dm())
+        .any(|(_, r)| r.members.contains_key(user))
+        || state
+            .rooms
+            .values()
+            .filter(|r| !r.is_dm())
+            .any(|r| r.messages.iter().any(|m| &m.author == user));
+    if setting_up || known {
+        return;
+    }
+    let name = state.display_name(room, user);
+    let label = state.room_label(room);
+    let trace = Trace::new(
+        format!("{name} joined {label}"),
+        "a new member gets one DM saying what I keep and who sees it",
+        now,
+    );
+    let text = join_line(state, room, user, now);
+    send_dm(state, fx, user, text, now, trace, false);
+    fx.push(Effect::Notice(format!(
+        "Sent {name} the join message on joining {label}."
+    )));
+}
+
+/// Whom the agent takes instructions from, with `everyone` for a group
+/// where every member is a lead.
+fn listens(state: &GroupState, room: &PlatformRoomId, everyone: &str) -> String {
+    if state.profile.leads == LeadsRule::Everyone {
+        return everyone.to_owned();
+    }
+    let names = lead_names(state, room);
+    if names.is_empty() {
+        "the leads the host names".to_owned()
+    } else {
+        join_names(&names, "and")
+    }
+}
+
+/// "Priya runs me and can see everything."
+fn host_sees(state: &GroupState) -> String {
+    let hosts: Vec<String> = state.hosts.iter().map(|u| state.name_of(u)).collect();
+    match hosts.as_slice() {
+        [] => "Whoever runs me can see everything.".to_owned(),
+        [one] => format!("{one} runs me and can see everything."),
+        many => format!("{} run me and can see everything.", join_names(many, "and")),
+    }
 }
 
 /// " Here a lead's 👍 approves and 😴 stands me down for the day.", for a

@@ -6,7 +6,7 @@
 
 use ours_core::resolve_time_rules;
 use ours_core::sim::instant;
-use ours_core::time::{echo, wants_resolver};
+use ours_core::time::{bounds, echo, wants_resolver};
 use ours_types::{Instant, TimeMeaning};
 
 const ZONES: [&str; 3] = ["Australia/Melbourne", "Europe/London", "America/New_York"];
@@ -226,4 +226,106 @@ fn words_the_rules_cannot_read_go_to_the_resolver() {
     for text in ["pizza", "Acme", "thai or indian"] {
         assert!(!wants_resolver(text), "{text}");
     }
+}
+
+#[test]
+fn the_month_under_way_runs_from_today() {
+    let zone = "Europe/London";
+    let now = instant("2026-11-05T10:00:00Z");
+    let found = resolve_time_rules("in november", zone, now).unwrap();
+    assert_eq!(
+        found.meaning,
+        TimeMeaning::Span {
+            start: instant("2026-11-05T00:00:00Z"),
+            end: instant("2026-12-01T00:00:00Z"),
+        }
+    );
+    assert_eq!(found.echo, "the rest of November");
+    // A month still to come is the whole of it.
+    let next = resolve_time_rules("in december", zone, now).unwrap();
+    assert_eq!(
+        next.meaning,
+        TimeMeaning::Span {
+            start: instant("2026-12-01T00:00:00Z"),
+            end: instant("2027-01-01T00:00:00Z"),
+        }
+    );
+    assert_eq!(next.echo, "December");
+}
+
+#[test]
+fn a_day_lasts_as_long_as_the_clocks_make_it() {
+    // London goes back an hour on Sunday 25 October and forward on 28 March,
+    // New York goes back on 1 November, Melbourne forward on 4 October.
+    let cases = [
+        ("Europe/London", "2026-10-23T10:00:00+01:00", 25),
+        ("Europe/London", "2027-03-26T10:00:00Z", 23),
+        ("America/New_York", "2026-10-30T10:00:00-04:00", 25),
+        ("Australia/Melbourne", "2026-10-02T10:00:00+10:00", 23),
+    ];
+    for (zone, friday, hours) in cases {
+        let sunday = resolve_time_rules("sunday", zone, instant(friday)).unwrap();
+        let (start, end) = bounds(&sunday.meaning, zone).unwrap();
+        assert_eq!(end.seconds_since(start), hours * 3600, "{zone} {friday}");
+        assert_eq!(date(&sunday.meaning, zone), date_after(end, zone, -1));
+    }
+    // A time on the far side of the change keeps its local clock.
+    let zone = "Europe/London";
+    let friday = instant("2026-10-23T10:00:00+01:00");
+    let morning = resolve_time_rules("sunday 9am", zone, friday).unwrap();
+    assert_eq!(
+        morning.meaning,
+        TimeMeaning::Instant {
+            at: instant("2026-10-25T09:00:00Z"),
+            has_time: true,
+        }
+    );
+    // A weekend across the change runs from Saturday's midnight to Monday's.
+    let weekend = resolve_time_rules("this weekend", zone, friday).unwrap();
+    assert_eq!(
+        weekend.meaning,
+        TimeMeaning::Span {
+            start: instant("2026-10-24T00:00:00+01:00"),
+            end: instant("2026-10-26T00:00:00Z"),
+        }
+    );
+    assert_eq!(weekend.echo, "the weekend of the 24th");
+}
+
+#[test]
+fn short_months_end_where_they_end() {
+    let zone = "Europe/London";
+    let now = instant("2027-02-26T10:00:00Z");
+    let on = |phrase: &str, now: Instant| {
+        let found = resolve_time_rules(phrase, zone, now).unwrap_or_else(|| panic!("{phrase}"));
+        date(&found.meaning, zone)
+    };
+    assert_eq!(on("end of the month", now), "2027-02-28");
+    assert_eq!(on("in 3 days", now), "2027-03-01");
+    assert_eq!(on("the 30th", now), "2027-03-30");
+    assert_eq!(
+        on("end of the month", instant("2028-02-10T10:00:00Z")),
+        "2028-02-29"
+    );
+    let january = instant("2027-01-31T10:00:00Z");
+    assert_eq!(on("in a month", january), "2027-02-28");
+    assert_eq!(on("end of next month", january), "2027-02-28");
+    let february = resolve_time_rules("in february", zone, january).unwrap();
+    assert_eq!(
+        february.meaning,
+        TimeMeaning::Span {
+            start: instant("2027-02-01T00:00:00Z"),
+            end: instant("2027-03-01T00:00:00Z"),
+        }
+    );
+    assert_eq!(february.echo, "February");
+}
+
+/// The local date `days` days from the one `at` falls on, as 2026-11-12.
+fn date_after(at: Instant, zone: &str, days: i64) -> String {
+    let local = at.0.to_zoned(jiff::tz::TimeZone::get(zone).unwrap()).date();
+    local
+        .checked_add(jiff::Span::new().days(days))
+        .unwrap()
+        .to_string()
 }

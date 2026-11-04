@@ -980,3 +980,20 @@ fn undo_of_a_decided_date_takes_it_off_the_calendar() {
     );
     assert!(sim.state.calendar.is_empty());
 }
+
+#[test]
+fn undo_of_a_lapsed_poll_says_it_lapsed() {
+    let mut sim = friends();
+    sim.say("dinner", "sam", "Q, poll thai or pizza");
+    let pid = sim.state.proposals.keys().next().unwrap().clone();
+    sim.advance(3 * 24 * 60 * 60);
+    assert_eq!(sim.state.proposals[&pid].status, ProposalStatus::Expired);
+    let undo = sim.say("dinner", "sam", "Q, undo the poll");
+    assert_eq!(texts(&undo.effects), vec![ours_core::undo::POLL_LAPSED]);
+    assert!(!last_of(&sim, ActionClass::Poll).is_undone());
+    assert!(
+        !notices(&undo.effects)
+            .iter()
+            .any(|n| n.starts_with("Undone by"))
+    );
+}

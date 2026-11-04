@@ -236,3 +236,34 @@ fn a_group_that_watched_once_does_not_start_again_on_a_new_room() {
     assert!(notices(&synced).is_empty());
     assert!(!sim.state.is_observing());
 }
+
+#[test]
+fn thumbs_on_an_earlier_periods_line_still_count() {
+    let mut sim = watching_friends();
+    sim.classify(ClassifierScript::Answerable);
+    sim.say("dinner", "sam", "where was it?");
+    sim.advance(WINDOW);
+    let to_priya = sim.last_dm_to("priya").unwrap();
+    let to_sam = sim.last_dm_to("sam").unwrap();
+    sim.say("dinner", "priya", "Q, go");
+    sim.say("dinner", "priya", "Q, watch for 3 more days");
+    assert!(sim.state.is_observing());
+
+    // While the second period runs, a thumb on the first one's line counts there.
+    let thumb = sim.react("dm-priya", &to_priya, "priya", "👍");
+    assert_eq!(
+        notices(&thumb),
+        vec!["Priya gave a would-have line 👍; 1 👍 and 0 👎 so far."]
+    );
+    let earlier = sim.state.observed.as_ref().unwrap();
+    assert_eq!((earlier.up, earlier.down), (1, 0));
+    assert_eq!(sim.state.observe.as_ref().unwrap().up, 0);
+
+    // After the next go it is still open.
+    sim.say("dinner", "priya", "Q, go");
+    let thumb = sim.react("dm-sam", &to_sam, "sam", "👎");
+    assert_eq!(
+        notices(&thumb),
+        vec!["Sam gave a would-have line 👎; 0 👍 and 1 👎 so far."]
+    );
+}

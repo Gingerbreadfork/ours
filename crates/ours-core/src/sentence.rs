@@ -463,7 +463,7 @@ pub fn parse(text: &str) -> Option<Sentence> {
     if SENT.contains(&t.trim_end_matches(" please")) {
         return Some(Sentence::WhatDidYouSend);
     }
-    if WHY.contains(&t.as_str()) {
+    if WHY.contains(&t.trim_end_matches(" please")) {
         return Some(Sentence::Why);
     }
     if WHO_CAN_YOU_BE.contains(&t.trim_end_matches(" please")) {

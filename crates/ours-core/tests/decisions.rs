@@ -1137,3 +1137,86 @@ fn under_lead_decides_the_deadline_brings_a_tally_then_it_lapses() {
         vec!["🗳️ Acme or Beacon?\n1️⃣ Acme\n2️⃣ Beacon"]
     );
 }
+
+#[test]
+fn a_revote_won_by_an_undated_option_takes_the_old_date_off_the_calendar() {
+    let mut sim = three_friends();
+    sim.say("dinner", "sam", "Q, poll: thursday 7pm or takeaway at home");
+    let ballot = ballot_of(only_proposal(&sim));
+    sim.react("dinner", &ballot, "sam", "1️⃣");
+    sim.react("dinner", &ballot, "priya", "1️⃣");
+    assert_eq!(sim.state.calendar.len(), 1);
+
+    sim.say("dinner", "jo", "Q, re-vote");
+    let again = ballot_of(latest_proposal(&sim));
+    sim.react("dinner", &again, "sam", "2️⃣");
+    let closed = sim.react("dinner", &again, "priya", "2️⃣");
+    assert_eq!(texts(&closed), vec!["Takeaway at home it is, 2 to 0."]);
+    assert_eq!(sim.state.decisions.len(), 2);
+    assert!(sim.state.calendar.is_empty(), "{:?}", sim.state.calendar);
+}
+
+#[test]
+fn an_option_the_resolver_reads_as_soon_brings_the_deadline_in() {
+    let mut sim = three_friends();
+    sim.resolves(TimeScript::Resolve {
+        meaning: TimeMeaning::Instant {
+            at: instant("2026-11-09T17:30:00Z"),
+            has_time: true,
+        },
+        echo: Some("today at 5:30pm".into()),
+    });
+    let ask = sim.say("dinner", "sam", "Q, poll: after work or this weekend");
+    assert_eq!(time_requests(&ask.effects).len(), 1);
+    // Half the time to the soonest option, as if it had been read at once.
+    let p = only_proposal(&sim);
+    assert_eq!(p.deadline, instant("2026-11-09T13:45:00Z"));
+    let closes: Vec<_> = sim
+        .state
+        .timers
+        .values()
+        .filter(|t| matches!(t.purpose, TimerPurpose::Close { .. }))
+        .map(|t| t.at)
+        .collect();
+    assert_eq!(closes, vec![instant("2026-11-09T13:45:00Z")]);
+    assert!(
+        notices(&ask.effects)
+            .iter()
+            .any(|n| n.contains("now closes") && n.contains("sooner")),
+        "{:?}",
+        notices(&ask.effects)
+    );
+}
+
+#[test]
+fn an_addressed_statement_that_mentions_an_option_is_not_a_vote() {
+    let mut sim = Sim::new(Kind::Team);
+    sim.room(
+        "launch",
+        "launch",
+        &[("priya", "Priya", PlatformRole::Admin), regular("jo", "Jo")],
+    );
+    sim.advance_to(instant("2026-11-09T10:00:00Z"));
+    sim.say("launch", "jo", "Q, poll: Acme or Beacon");
+    assert_eq!(only_proposal(&sim).rule, CloseRule::LeadDecides);
+    sim.model_says("They did; it was a paper shortage.");
+    let long = sim.say(
+        "launch",
+        "priya",
+        "Q, I was reading that Acme had some trouble with a print run last spring",
+    );
+    assert!(only_proposal(&sim).is_open());
+    assert!(sim.state.decisions.is_empty());
+    assert_eq!(model_requests(&long.effects).len(), 1);
+    // Nor is one by DM.
+    sim.model_says("Noted.");
+    let dm = sim.dm(
+        "jo",
+        "I heard Beacon had a delivery problem with their last big order",
+    );
+    assert_eq!(model_requests(&dm.effects).len(), 1);
+    assert_eq!(only_proposal(&sim).counts(), vec![0, 0]);
+    // A short line from a lead still decides.
+    let short = sim.say("launch", "priya", "Q, Acme please");
+    assert!(texts(&short.effects)[0].starts_with("Decided: Acme, by Priya"));
+}

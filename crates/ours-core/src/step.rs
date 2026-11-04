@@ -32,7 +32,7 @@ use crate::reactions::{self, Meaning};
 use crate::recall::{self, Citation, RECALLED, recall};
 use crate::recur;
 use crate::retention;
-use crate::rights;
+use crate::rights::{self, FORGOTTEN_TRIGGER};
 use crate::sentence::{self, Sentence, TabSentence};
 use crate::settings::{self, SETTING_NOTE, addressed_trigger};
 use crate::setup;
@@ -43,7 +43,7 @@ use crate::state::{
 use crate::tab::{self, Adjust};
 use crate::time::clock_echo;
 use crate::timers::{self, MODEL_GUARD_SECONDS, TimerPurpose};
-use crate::trace::{Trace, quote};
+use crate::trace::{Trace, quote, shorten};
 use crate::triage::rules_score;
 use crate::undo;
 use crate::zone::{self, Zone};
@@ -162,12 +162,29 @@ fn inbound(state: &mut GroupState, event: InboundEvent, now: Instant, fx: &mut V
             }
         }
         InboundEvent::MessageDeleted { room, id } => {
+            let text = state
+                .rooms
+                .get(&room)
+                .and_then(|r| r.messages.iter().find(|m| m.id == id))
+                .map(|m| m.text.clone());
             if let Some(r) = state.rooms.get_mut(&room) {
                 r.remove(&id);
                 r.own_messages.retain(|m| m != &id);
+                r.traces.retain(|(m, _)| m != &id);
+            }
+            if let Some(text) = text {
+                scrub_traces(state, &text);
             }
             if state.deferrals.remove(&id).is_some() {
                 debug!(message = %id, "deferral withdrawn with its message");
+            }
+            // A deleted request is withdrawn too, flags still in flight included.
+            let asked = |d: &Deferral| d.room == room && d.request == id;
+            state.deferrals.retain(|_, d| !asked(d));
+            for dm in state.pending_dms.values_mut() {
+                if matches!(&dm.then, Some(DmFollowUp::Request { deferral }) if asked(deferral)) {
+                    dm.then = None;
+                }
             }
             decide::on_deleted(state, &room, &id);
             commitment::on_deleted(state, &room, &id, now, fx);
@@ -214,8 +231,21 @@ fn inbound(state: &mut GroupState, event: InboundEvent, now: Instant, fx: &mut V
                 debug!(%message, %emoji, "reaction removed");
             }
         }
-        InboundEvent::MemberJoined { room, member, .. }
-        | InboundEvent::MemberUpdated { room, member } => {
+        InboundEvent::MemberJoined { room, member, .. } => {
+            let here = state
+                .rooms
+                .get(&room)
+                .is_some_and(|r| r.members.contains_key(&member.id));
+            zone::from_platform(state, &member);
+            state
+                .room_mut(&room)
+                .members
+                .insert(member.id.clone(), member.clone());
+            if !here {
+                setup::welcome(state, &room, &member, now, fx);
+            }
+        }
+        InboundEvent::MemberUpdated { room, member } => {
             zone::from_platform(state, &member);
             state
                 .room_mut(&room)
@@ -288,6 +318,21 @@ fn inbound(state: &mut GroupState, event: InboundEvent, now: Instant, fx: &mut V
                 "Disconnected from {}: {reason}",
                 platform_name(platform)
             )));
+        }
+    }
+}
+
+/// Takes a deleted message's words out of every trigger that quotes them.
+fn scrub_traces(state: &mut GroupState, text: &str) {
+    if shorten(text, 80).is_empty() {
+        return;
+    }
+    let quoted = [quote(text, 80), quote(text, 60)];
+    for room in state.rooms.values_mut() {
+        for (_, trace) in &mut room.traces {
+            if quoted.iter().any(|q| trace.trigger.contains(q.as_str())) {
+                trace.trigger = FORGOTTEN_TRIGGER.to_owned();
+            }
         }
     }
 }
@@ -1489,6 +1534,9 @@ fn on_action_result(
             let why = error.as_deref().unwrap_or("no reason given");
             fx.push(Effect::Notice(format!("A poll failed to send: {why}")));
         }
+        return;
+    }
+    if pin::on_edit_result(state, id, ok, error.as_deref()) && ok {
         return;
     }
     let pending = state.pending_actions.remove(id);

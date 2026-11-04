@@ -1280,3 +1280,288 @@ fn a_milestone_four_snapshot_still_loads_and_keeps_folding() {
     sim.react("dinner", &ballot, "jo", "1️⃣");
     assert_eq!(sim.state.decisions.len(), 1);
 }
+
+#[test]
+fn a_lead_decided_entry_is_in_the_feed_of_everyone_in_its_room() {
+    let mut sim = Sim::new(Kind::Team);
+    sim.room(
+        "launch",
+        "launch",
+        &[
+            ("priya", "Priya", PlatformRole::Admin),
+            regular("jo", "Jo"),
+            regular("sam", "Sam"),
+        ],
+    );
+    sim.room(
+        "general",
+        "general",
+        &[
+            ("priya", "Priya", PlatformRole::Admin),
+            regular("kim", "Kim"),
+        ],
+    );
+    sim.advance_to(instant("2026-11-09T10:00:00Z"));
+    sim.say("launch", "jo", "Q, poll: thursday 2pm or friday 2pm");
+    let decided = sim.say("launch", "priya", "Q, go with thursday");
+    assert!(
+        texts(&decided.effects)[0].starts_with("Decided: Thursday"),
+        "{:?}",
+        texts(&decided.effects)
+    );
+    assert!(sim.state.calendar[0].attendees.is_empty());
+    let now = sim.now;
+    let feed = |sim: &Sim, who: &str| components(&render_ics(&sim.state, Some(&user(who)), now));
+
+    // Nobody voted, so everyone in #launch is in it, and nobody outside.
+    for who in ["jo", "sam", "priya"] {
+        let events = feed(&sim, who);
+        assert_eq!(events.len(), 1, "{who}");
+        assert_eq!(field(&events[0], "DTSTART"), "20261112T140000Z");
+        assert_eq!(field(&events[0], "DTEND"), "20261112T160000Z");
+    }
+    assert!(feed(&sim, "kim").is_empty());
+
+    // Someone who says they can't make it drops out of their own feed.
+    sim.say("launch", "sam", "I can't do thursday");
+    assert_eq!(sim.state.calendar[0].out.len(), 1);
+    assert!(feed(&sim, "sam").is_empty());
+    assert_eq!(feed(&sim, "jo").len(), 1);
+}
+
+#[test]
+fn a_members_feed_gives_commitments_their_span() {
+    let mut sim = Sim::new(Kind::Friends);
+    sim.zone("Europe/London");
+    sim.room(
+        "trip",
+        "trip",
+        &[regular("jo", "Jo"), regular("sam", "Sam")],
+    );
+    sim.advance_to(instant("2027-03-22T10:00:00Z"));
+    // A timed one lasts half an hour from when it is due.
+    sim.promises(vec![promise("Jo", "send the itinerary", None)]);
+    sim.say("trip", "jo", "I'll send the itinerary by friday 5pm");
+    // A day without a time is the whole of that day, which is 23 hours
+    // when the clocks go forward.
+    sim.promises(vec![promise("Jo", "book the hall", Some("2027-03-28"))]);
+    sim.say("trip", "jo", "I'll book the hall");
+    assert_eq!(sim.state.commitments.len(), 2);
+    let events = components(&render_ics(&sim.state, Some(&user("jo")), sim.now));
+    assert_eq!(events.len(), 2);
+    assert_eq!(field(&events[0], "SUMMARY"), "Due: send the itinerary");
+    assert_eq!(field(&events[0], "DTSTART"), "20270326T170000Z");
+    assert_eq!(field(&events[0], "DTEND"), "20270326T173000Z");
+    assert_eq!(field(&events[1], "SUMMARY"), "Due: book the hall");
+    assert_eq!(field(&events[1], "DTSTART"), "20270328T000000Z");
+    assert_eq!(field(&events[1], "DTEND"), "20270328T230000Z");
+}
+
+#[test]
+fn the_same_promise_for_another_day_is_kept_as_a_second_one() {
+    let mut sim = launch();
+    sim.promises(vec![promise(
+        "Alex",
+        "send the minutes",
+        Some("2026-11-06"),
+    )]);
+    sim.say("launch", "alex", "I'll send the minutes");
+    // Said again for the same day, it is the same promise.
+    sim.promises(vec![promise(
+        "Alex",
+        "send the minutes",
+        Some("2026-11-06"),
+    )]);
+    sim.say("launch", "alex", "I'll send the minutes, promise");
+    assert_eq!(sim.state.commitments.len(), 1);
+    // For a later day it is a new one.
+    sim.promises(vec![promise(
+        "Alex",
+        "send the minutes",
+        Some("2026-11-13"),
+    )]);
+    sim.say(
+        "launch",
+        "alex",
+        "and I'll send the minutes after the next one",
+    );
+    let mut due: Vec<_> = sim.state.commitments.values().map(|c| c.due).collect();
+    due.sort();
+    assert_eq!(
+        due,
+        vec![
+            Some(instant("2026-11-07T00:00:00Z")),
+            Some(instant("2026-11-14T00:00:00Z"))
+        ]
+    );
+}
+
+#[test]
+fn a_nudge_at_the_usual_hour_lands_on_the_due_day_where_they_are() {
+    let mut sim = Sim::new(Kind::Friends);
+    sim.room(
+        "trip",
+        "trip",
+        &[regular("jo", "Jo"), regular("alex", "Alex")],
+    );
+    let mut alex = ours_core::sim::member("alex", "Alex", PlatformRole::Regular);
+    alex.timezone = Some("Australia/Melbourne".into());
+    sim.feed(Input::Inbound(ours_types::InboundEvent::MemberUpdated {
+        room: "trip".into(),
+        member: alex,
+    }));
+    // Alex posts at 22:00 in the group's zone, nine the next morning there.
+    for day in 2..5 {
+        sim.advance_to(instant(&format!("2026-11-0{day}T22:00:00Z")));
+        sim.say("trip", "alex", "morning");
+    }
+    sim.promises(vec![promise("Alex", "book the cabin", Some("2026-11-12"))]);
+    sim.say("trip", "alex", "I'll book the cabin");
+    let c = only_commitment(&sim);
+    assert_eq!(c.due, Some(instant("2026-11-12T13:00:00Z")));
+    // The day before and the day itself, at nine in Melbourne.
+    let before = sim.advance_to(instant("2026-11-10T22:00:00Z"));
+    assert_eq!(
+        dms_to(&before, "alex"),
+        vec!["Book the cabin is due tomorrow. Done, slipping, or drop it?"]
+    );
+    let at = sim.advance_to(instant("2026-11-11T22:00:00Z"));
+    assert_eq!(
+        dms_to(&at, "alex"),
+        vec!["Book the cabin is due today. Done, slipping, or drop it?"]
+    );
+}
+
+#[test]
+fn a_digest_line_lists_five_and_counts_the_rest() {
+    let mut sim = launch();
+    let since = sim.now;
+    for n in 1..=7 {
+        let what = format!("review chapter {n}");
+        sim.promises(vec![promise("Alex", &what, Some("2026-11-04"))]);
+        sim.say("launch", "alex", &format!("I'll {what}"));
+    }
+    assert_eq!(sim.state.commitments.len(), 7);
+    let text = ours_core::digest(&sim.state, &"launch".into(), since, sim.now).unwrap();
+    assert_eq!(
+        text,
+        "Due: Alex, review chapter 1, tomorrow; Alex, review chapter 2, tomorrow; Alex, review chapter 3, tomorrow; Alex, review chapter 4, tomorrow; Alex, review chapter 5, tomorrow; and 2 more."
+    );
+}
+
+#[test]
+fn a_failed_edit_of_the_pinned_message_is_tried_again_and_a_lost_one_reposted() {
+    let mut sim = dinner();
+    sim.capabilities(can_edit_and_pin());
+    sim.say("dinner", "sam", "Q, poll thursday vs friday");
+    let room = PlatformRoomId::new("dinner");
+    let first = sim.state.pins[&room].message.clone().unwrap();
+    let ballot = sim
+        .state
+        .proposals
+        .values()
+        .next()
+        .unwrap()
+        .ballot
+        .message()
+        .cloned()
+        .unwrap();
+    sim.react("dinner", &ballot, "sam", "1️⃣");
+
+    // Fires the edit by hand, so the platform's answer can be a refusal.
+    let refuse = |sim: &mut Sim, error: &str| -> Vec<Effect> {
+        let (timer, at) = sim
+            .state
+            .timers
+            .iter()
+            .find(|(_, t)| matches!(t.purpose, ours_core::TimerPurpose::Repin { .. }))
+            .map(|(id, t)| (id.clone(), t.at))
+            .expect("an edit is due");
+        sim.now = at;
+        let fired = step(&mut sim.state, Input::TimerFired { id: timer }, at);
+        let edit = fired
+            .iter()
+            .find_map(|e| match e {
+                Effect::Send(out)
+                    if matches!(out.action, ours_types::OutboundAction::EditMessage { .. }) =>
+                {
+                    Some(out.id.clone())
+                }
+                _ => None,
+            })
+            .expect("an edit went out");
+        sim.feed(Input::Inbound(ours_types::InboundEvent::ActionResult {
+            id: edit,
+            ok: false,
+            message: None,
+            error: Some(error.to_owned()),
+        }))
+    };
+
+    // A failure is tried again a minute later, three tries in all.
+    for _ in 0..2 {
+        let failed = refuse(&mut sim, "Internal Server Error");
+        assert_eq!(sim.state.pins[&room].shown, "");
+        assert!(failed.iter().any(|e| matches!(
+            e,
+            Effect::SetTimer {
+                purpose: ours_core::TimerPurpose::Repin { .. },
+                ..
+            }
+        )));
+    }
+    let third = refuse(&mut sim, "Internal Server Error");
+    assert!(!third.iter().any(|e| matches!(e, Effect::SetTimer { .. })));
+    assert!(sim.state.pins[&room].shown.contains("1 vote"));
+
+    // The next change tries again; a message that is gone is posted afresh.
+    sim.react("dinner", &ballot, "jo", "2️⃣");
+    let lost = refuse(&mut sim, "Unknown Message (code 10008)");
+    let posted = texts(&lost);
+    assert_eq!(posted.len(), 1, "{posted:?}");
+    assert!(posted[0].starts_with("Open: Thursday or Friday, 2 votes"));
+    let second = sim.state.pins[&room].message.clone().unwrap();
+    assert_ne!(second, first);
+    assert_eq!(pinned(&lost), vec![&second]);
+}
+
+#[test]
+fn setting_up_a_recurrence_again_changes_the_one_there() {
+    let mut sim = dinner();
+    sim.say(
+        "dinner",
+        "jo",
+        "Q, remind us every Saturday 9am to bring boots",
+    );
+    let again = sim.say(
+        "dinner",
+        "jo",
+        "Q, remind us every Saturday 9am to bring boots",
+    );
+    assert_eq!(
+        texts(&again.effects),
+        vec!["Already set: bring boots, every Saturday at 9am. Next is Saturday the 7th at 9am."]
+    );
+    let moved = sim.say(
+        "dinner",
+        "jo",
+        "Q, remind us every Saturday 10am to bring boots",
+    );
+    assert_eq!(
+        texts(&moved.effects),
+        vec![
+            "Changed: bring boots, every Saturday at 10am. Next is Saturday the 7th at 10am; I'll remind the room a day before."
+        ]
+    );
+    assert_eq!(sim.state.recurrences.len(), 1);
+
+    // One reminder, at the new time, and pause stops it.
+    let reminder = sim.advance_to(instant("2026-11-06T10:00:00Z"));
+    assert_eq!(
+        texts(&reminder),
+        vec!["Reminder for Saturday the 7th at 10am: bring boots."]
+    );
+    let paused = sim.say("dinner", "jo", "Q, pause the boots");
+    assert_eq!(texts(&paused.effects), vec!["Paused the bring boots."]);
+    assert!(texts(&sim.advance_to(instant("2026-11-20T12:00:00Z"))).is_empty());
+}

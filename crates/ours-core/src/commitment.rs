@@ -218,7 +218,7 @@ pub(crate) fn event_of(
         .calendar
         .iter()
         .filter(|e| e.room.as_ref().is_none_or(|r| visible(state, r, &place)))
-        .filter(|e| time::bounds(&e.when).is_some_and(|(_, end)| end >= now))
+        .filter(|e| time::bounds(&e.when, &state.timezone).is_some_and(|(_, end)| end >= now))
         .collect();
     if let Some(named) = named {
         let wanted = crate::proposal::words(named);
@@ -236,7 +236,7 @@ pub(crate) fn event_of(
     let day = date_of(due.plus_seconds(-1), tz);
     entries
         .iter()
-        .find(|e| time::bounds(&e.when).is_some_and(|(start, _)| date_of(start, tz) == day))
+        .find(|e| time::bounds(&e.when, tz).is_some_and(|(start, _)| date_of(start, tz) == day))
         .map(|e| e.decision.clone())
 }
 
@@ -281,10 +281,20 @@ pub(crate) fn store_drafts(
         if what.is_empty() {
             continue;
         }
-        let duplicate = state
-            .commitments
-            .values()
-            .any(|c| c.is_open() && c.who == who && c.what.eq_ignore_ascii_case(&what));
+        let (due, due_has_time) = due_of(&draft, &pending.text, &zone_name, pending.at);
+        let event = event_of(state, &room, draft.event.as_deref(), due, now);
+        let tz = state.timezone.as_str();
+        let day = due.map(|d| date_of(if due_has_time { d } else { d.plus_seconds(-1) }, tz));
+        // Already kept if the same promise is open for that event or day.
+        let duplicate = state.commitments.values().any(|c| {
+            c.is_open()
+                && c.who == who
+                && c.what.eq_ignore_ascii_case(&what)
+                && match (&c.event, &event) {
+                    (Some(a), Some(b)) => a == b,
+                    _ => c.due_date(tz) == day,
+                }
+        });
         if duplicate {
             continue;
         }
@@ -299,8 +309,6 @@ pub(crate) fn store_drafts(
                 person(state, &room, &pending.speaker, &f).map(|user| ForWhom::Member { user })
             }
         });
-        let (due, due_has_time) = due_of(&draft, &pending.text, &zone_name, pending.at);
-        let event = event_of(state, &room, draft.event.as_deref(), due, now);
         let id = state.mint_commitment();
         let quote = draft
             .quote
@@ -420,12 +428,18 @@ fn allowed(state: &GroupState, user: &PlatformUserId, at: Instant) -> Instant {
     at
 }
 
-/// `user`'s usual hour on `date` in their zone, or nine there.
+/// `user`'s usual hour on `date`, a day in their zone, or nine there. The
+/// usual hour is kept in the group's zone, so it is read in theirs first.
 fn hour_on(state: &GroupState, user: &PlatformUserId, date: Date) -> Option<Instant> {
-    match usual_hour(state, user).and_then(|h| i8::try_from(h).ok()) {
-        Some(hour) => at_on(date, hour, 0, &state.timezone),
-        None => at_on(date, NUDGE_HOUR, 0, &zone_of(state, user)),
-    }
+    let theirs = zone_of(state, user);
+    let (hour, minute) = match usual_hour(state, user).and_then(|h| i8::try_from(h).ok()) {
+        Some(hour) => {
+            let local = zone::local(at_on(date, hour, 0, &state.timezone)?, &theirs);
+            (local.hour(), local.minute())
+        }
+        None => (NUDGE_HOUR, 0),
+    };
+    at_on(date, hour, minute, &theirs)
 }
 
 /// When the nudge at due goes: at the time for a timed due, at the

@@ -35,7 +35,7 @@
     },
     "authenticated": {
       "type": "boolean",
-      "description": "DKIM and SPF both passed; otherwise the sender is less trusted."
+      "description": "The receiver's DMARC check passed for the From domain, or with no\nDMARC verdict a DKIM or SPF pass aligned with it. Otherwise the\nsender is less trusted."
     }
   },
   "required": [

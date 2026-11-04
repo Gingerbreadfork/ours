@@ -103,6 +103,13 @@ pub(crate) fn go(state: &mut GroupState, _now: Instant, fx: &mut Vec<Effect>) ->
             timers::cancel(state, fx, &hand.timer);
         }
     }
+    let mut observe = observe;
+    // DMs from the period before stay open for a 👍 or 👎.
+    if let Some(earlier) = state.observed.take() {
+        for (message, user) in earlier.targets {
+            observe.targets.entry(message).or_insert(user);
+        }
+    }
     state.observed = Some(observe);
     "Done watching. I'll speak up when it helps, within the budget.".to_owned()
 }
@@ -174,12 +181,14 @@ pub(crate) fn on_reaction(
         return false;
     }
     let name = state.name_of(user);
-    let Some(observe) = state.observe.as_mut().or(state.observed.as_mut()) else {
+    // The DM may be from the period under way or from the one before it.
+    let Some(observe) = [state.observe.as_mut(), state.observed.as_mut()]
+        .into_iter()
+        .flatten()
+        .find(|o| o.targets.get(message) == Some(user))
+    else {
         return false;
     };
-    if observe.targets.get(message) != Some(user) {
-        return false;
-    }
     observe.targets.remove(message);
     if up {
         observe.up += 1;

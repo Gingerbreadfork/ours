@@ -387,7 +387,11 @@ fn ballot_text(state: &GroupState, p: &Proposal, now: Instant) -> String {
 
 /// " (Alex away)" when the option's date falls in a room member's away span.
 fn away_mark(state: &GroupState, room: &PlatformRoomId, o: &ProposalOption) -> String {
-    let Some((start, end)) = o.when.as_ref().and_then(time::bounds) else {
+    let Some((start, end)) = o
+        .when
+        .as_ref()
+        .and_then(|w| time::bounds(w, &state.timezone))
+    else {
         return String::new();
     };
     let Some(r) = state.rooms.get(room) else {
@@ -770,12 +774,13 @@ fn close(
         open_seconds: now.seconds_since(p.opened_at),
     };
     let mut entry_record = None;
+    // A re-vote replaces the old outcome whichever option wins.
+    if let Some(old) = &p.reopens {
+        state.calendar.retain(|e| &e.decision != old);
+    }
     if let Some(chosen) = p.options.get(winner)
         && let Some(when) = chosen.when.clone().filter(|w| *w != TimeMeaning::None)
     {
-        if let Some(old) = &p.reopens {
-            state.calendar.retain(|e| &e.decision != old);
-        }
         let attendees = match decision.outcome {
             Outcome::Count { .. } => chosen.votes.clone(),
             Outcome::Decider { .. } => BTreeSet::new(),
@@ -1511,6 +1516,7 @@ pub(crate) fn on_time_resolved(
                     echo.unwrap_or_default()
                 )));
             }
+            pull_deadline(state, &proposal, now, fx);
         }
         TimeTarget::Deadline { proposal, reply_to } => {
             let room = pending.room.clone();
@@ -1570,6 +1576,33 @@ fn deadline_from(meaning: &TimeMeaning, zone_name: &str) -> Option<Instant> {
         TimeMeaning::Ambiguous { .. } | TimeMeaning::None => None,
         other => time::event_start(other, zone_name),
     }
+}
+
+/// Brings an open proposal's deadline in when an option the resolver just
+/// read is sooner than the deadline allowed for. It never moves it later.
+fn pull_deadline(state: &mut GroupState, pid: &ProposalId, now: Instant, fx: &mut Vec<Effect>) {
+    let Some(p) = state
+        .proposals
+        .get(pid)
+        .filter(|p| p.is_open() && p.lapsed == 0)
+    else {
+        return;
+    };
+    let at = deadline_for(state, &p.options, p.opened_at).max(now);
+    if at >= p.deadline {
+        return;
+    }
+    let notice = format!(
+        "{} now closes {}, sooner now that an option has a time.",
+        p.title(),
+        zone::stamp(at, &state.timezone)
+    );
+    if let Some(p) = state.proposals.get_mut(pid) {
+        p.deadline = at;
+    }
+    disarm(state, pid, fx);
+    arm(state, pid, now, fx);
+    fx.push(Effect::Notice(notice));
 }
 
 /// Moves a proposal's deadline and says so.
@@ -1740,7 +1773,7 @@ fn late_cant(
         .filter(|d| {
             d.chosen()
                 .and_then(|o| o.when.as_ref())
-                .and_then(time::bounds)
+                .and_then(|w| time::bounds(w, &state.timezone))
                 .is_some_and(|(_, end)| end >= now)
         })
         .collect();
@@ -1813,6 +1846,8 @@ pub(crate) fn addressed(
         };
         let lead_decides = p.rule == CloseRule::LeadDecides;
         match named(body, p) {
+            // A statement that only mentions an option is for the model.
+            Named::One { clear: false, .. } => {}
             Named::One { index, .. } => {
                 let display = p.options[index].display().to_owned();
                 if lead_decides && role < Role::Lead && p.ballot == Ballot::None {
@@ -1904,6 +1939,7 @@ fn dm_vote(
         }
         let title = p.title();
         let text = match named(body, p) {
+            Named::One { clear: false, .. } => continue,
             Named::One { index, .. } => {
                 let display = p.options[index].display().to_owned();
                 if let Some(p) = state.proposals.get_mut(&pid) {

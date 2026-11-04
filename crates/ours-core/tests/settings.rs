@@ -5,7 +5,7 @@
 
 use ours_core::attention::SHUSH;
 use ours_core::leads::DEFERRAL_REPLY;
-use ours_core::sim::{ClassifierScript, Sim, messages, model_requests, notices, texts};
+use ours_core::sim::{ClassifierScript, Sim, instant, messages, model_requests, notices, texts};
 use ours_core::step::{CHECK, NOTHING_SAID};
 use ours_core::{
     Command, DeferredChange, GroupState, Input, LeadsRule, Persona, QuietHours, SettingChange,
@@ -344,4 +344,75 @@ fn why_explains_an_unprompted_answer_and_a_setting() {
         "Trigger: Jo in #dinner: \"Q, quiet after 11\"\n\
          Rule: a lead's or host's setting applies at once"
     );
+}
+
+#[test]
+fn why_please_reads_the_record_too() {
+    let mut sim = work();
+    sim.model_says("Thursday at 2.");
+    sim.say("launch", "sam", "Q, when's the review?");
+    let why = sim.say("launch", "priya", "Q, why please");
+    assert!(model_requests(&why.effects).is_empty());
+    let text = texts(&why.effects)[0];
+    assert!(
+        text.starts_with("Trigger: Sam in #launch: \"Q, when's the review?\""),
+        "{text}"
+    );
+}
+
+#[test]
+fn a_deleted_message_takes_its_words_out_of_why() {
+    let mut sim = work();
+    sim.model_says("Thursday at 2.");
+    let asked = sim.say("launch", "sam", "Q, when's the review with legal?");
+    let answer = sim.last_sent_message().unwrap();
+    let delete = |sim: &mut Sim, id: &ours_types::PlatformMessageId| {
+        sim.feed(Input::Inbound(ours_types::InboundEvent::MessageDeleted {
+            room: "launch".into(),
+            id: id.clone(),
+        }));
+    };
+    delete(&mut sim, &asked.id);
+    let why = sim.reply("launch", "priya", "why?", &answer);
+    let text = texts(&why.effects)[0];
+    assert!(
+        text.starts_with("Trigger: a message since forgotten\n"),
+        "{text}"
+    );
+    assert!(!text.contains("legal"));
+
+    // The agent's own message, deleted, takes its trace with it.
+    delete(&mut sim, &answer);
+    let room = &sim.state.rooms[&"launch".into()];
+    assert!(room.trace_of(&answer).is_none());
+    assert!(
+        room.traces
+            .iter()
+            .all(|(_, t)| !t.trigger.contains("legal"))
+    );
+}
+
+#[test]
+fn working_hours_may_run_past_midnight() {
+    let mut sim = work();
+    sim.say("launch", "priya", "Q, no quiet hours");
+    let set = sim.say("launch", "priya", "Q, working hours 6pm to 2am");
+    assert_eq!(
+        texts(&set.effects),
+        vec!["Working hours 18:00 to 02:00, Monday to Friday."]
+    );
+    let hours = sim.state.profile.working_hours.unwrap();
+    // The small hours belong to the evening before: Friday night runs into
+    // Saturday, and Sunday night is not a working one.
+    assert!(hours.contains(5, 23));
+    assert!(hours.contains(6, 1));
+    assert!(!hours.contains(6, 19));
+    assert!(!hours.contains(1, 1));
+    assert!(!hours.contains(3, 12));
+    let speaks = |at: &str| ours_core::can_speak_unprompted(&sim.state, instant(at));
+    assert!(speaks("2026-11-04T23:00:00Z"));
+    assert!(speaks("2026-11-05T01:00:00Z"));
+    assert!(!speaks("2026-11-04T12:00:00Z"));
+    // The digest comes an hour before they end.
+    assert_eq!(sim.state.jobs().digest.map(|d| d.hour), Some(1));
 }

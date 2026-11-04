@@ -71,6 +71,7 @@ impl QuietHours {
 }
 
 /// Local hours in the group's zone when unprompted messages may be sent.
+/// The span may wrap midnight; equal start and end means the whole day.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct WorkingHours {
     pub start: u8,
@@ -79,12 +80,17 @@ pub struct WorkingHours {
 }
 
 impl WorkingHours {
-    /// `weekday` counts Monday as 1 and Sunday as 7.
+    /// `weekday` counts Monday as 1 and Sunday as 7. The hours after
+    /// midnight of a span that wraps belong to the day it started.
     pub fn contains(self, weekday: u8, hour: u8) -> bool {
-        if self.weekdays_only && weekday > 5 {
-            return false;
-        }
-        hour >= self.start && hour < self.end
+        let day = match self.start.cmp(&self.end) {
+            std::cmp::Ordering::Equal => weekday,
+            std::cmp::Ordering::Less if hour >= self.start && hour < self.end => weekday,
+            std::cmp::Ordering::Greater if hour >= self.start => weekday,
+            std::cmp::Ordering::Greater if hour < self.end => (weekday + 5) % 7 + 1,
+            _ => return false,
+        };
+        !(self.weekdays_only && day > 5)
     }
 }
 
@@ -154,7 +160,7 @@ impl Jobs {
 
     /// An hour before working hours end, or 17:00 without them.
     pub fn default_digest(working: Option<WorkingHours>) -> ClockTime {
-        let hour = working.map_or(17, |w| w.end.saturating_sub(1).max(w.start));
+        let hour = working.map_or(17, |w| (w.end % 24 + 23) % 24);
         ClockTime { hour, minute: 0 }
     }
 }

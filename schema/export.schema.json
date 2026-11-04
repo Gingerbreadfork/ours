@@ -457,7 +457,7 @@
         "end",
         "weekdays_only"
       ],
-      "description": "Local hours in the group's zone when unprompted messages may be sent."
+      "description": "Local hours in the group's zone when unprompted messages may be sent.\nThe span may wrap midnight; equal start and end means the whole day."
     },
     "Jobs": {
       "type": "object",
@@ -2264,6 +2264,18 @@
           ],
           "description": "The creditor's DM.",
           "default": null
+        },
+        "room": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PlatformRoomId"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "description": "The room whose lines it settles; none for lines entered by DM.",
+          "default": null
         }
       },
       "required": [
@@ -3784,6 +3796,79 @@
             "facts",
             "at"
           ]
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "keep"
+            },
+            "facts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FactId"
+              }
+            }
+          },
+          "required": [
+            "type",
+            "facts"
+          ],
+          "description": "Kept for good and as stated."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "correct"
+            },
+            "facts": {
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/FactId"
+              }
+            },
+            "rest": {
+              "type": "string",
+              "default": ""
+            },
+            "corrected": {
+              "anyOf": [
+                {
+                  "$ref": "#/$defs/PlatformMessageId"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The message the correction answers.",
+              "default": null
+            }
+          },
+          "required": [
+            "type",
+            "facts"
+          ],
+          "description": "Retracted as corrected, with `rest` read as the right version."
+        },
+        {
+          "type": "object",
+          "properties": {
+            "type": {
+              "type": "string",
+              "const": "remember"
+            },
+            "message": {
+              "$ref": "#/$defs/PlatformMessageId"
+            }
+          },
+          "required": [
+            "type",
+            "message"
+          ],
+          "description": "Someone else's message, read and kept for good."
         }
       ],
       "description": "A change to facts someone asked for, carried out at once or after a\nlead's ✅."

@@ -144,7 +144,7 @@ pub fn upcoming(state: &GroupState, now: Instant, days: i64) -> Vec<&Entry> {
     let mut entries: Vec<(Instant, &Entry)> = state
         .calendar
         .iter()
-        .filter_map(|e| bounds(&e.when).map(|(start, end)| (start, end, e)))
+        .filter_map(|e| bounds(&e.when, &state.timezone).map(|(start, end)| (start, end, e)))
         .filter(|(start, end, _)| *end >= now && *start < until)
         .map(|(start, _, e)| (start, e))
         .collect();

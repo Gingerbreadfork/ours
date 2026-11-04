@@ -16,7 +16,7 @@ use crate::tab::{balance_parts, balances_at};
 use crate::time;
 use crate::timers::{self, TimerPurpose};
 use ours_types::{
-    Instant, Outbound, OutboundAction, PlatformMessageId, PlatformRoomId, TimeMeaning,
+    ActionId, Instant, Outbound, OutboundAction, PlatformMessageId, PlatformRoomId, TimeMeaning,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -30,6 +30,8 @@ const OPEN_SHOWN: usize = 2;
 /// Commitments shown before "and N more".
 const OUTSTANDING_SHOWN: usize = 5;
 pub const NOTHING_ON: &str = "Nothing open, nothing due.";
+/// Failed edits in a row before it waits for the next change to try again.
+pub const EDIT_TRIES: u32 = 3;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 pub struct Pinned {
@@ -40,11 +42,36 @@ pub struct Pinned {
     /// What the platform shows.
     #[serde(default)]
     pub shown: String,
+    /// The edit the platform has not answered for yet.
+    #[serde(default)]
+    pub editing: Option<ActionId>,
+    /// Edits in a row that failed.
+    #[serde(default)]
+    pub failures: u32,
 }
 
 /// What the room's state message says, and whether any of it is more than
 /// whom the agent listens to.
 pub fn render(state: &GroupState, room: &PlatformRoomId, now: Instant) -> (String, bool) {
+    let mut lines = state_lines(state, room, now);
+    let need = !lines.is_empty();
+    if !need {
+        lines.push(NOTHING_ON.to_owned());
+    }
+    let mut tail = vec![listen_line(state, room)];
+    if !state.model_label.is_empty() {
+        tail.push(format!("Running on {}.", state.model_label));
+    }
+    if state.feed_base.is_some() {
+        tail.push("Calendar feed: ask me for the calendar link.".to_owned());
+    }
+    lines.truncate(LINES.saturating_sub(tail.len()));
+    lines.extend(tail);
+    (lines.join("\n"), need)
+}
+
+/// What is open, upcoming, outstanding and owed in `room`, a line each.
+pub(crate) fn state_lines(state: &GroupState, room: &PlatformRoomId, now: Instant) -> Vec<String> {
     let place = Place::Room(room.clone());
     let tz = state.timezone.as_str();
     let mut lines: Vec<String> = Vec::new();
@@ -94,20 +121,7 @@ pub fn render(state: &GroupState, room: &PlatformRoomId, now: Instant) -> (Strin
             balance_parts(state, &balances).join(", ")
         ));
     }
-    let need = !lines.is_empty();
-    if !need {
-        lines.push(NOTHING_ON.to_owned());
-    }
-    let mut tail = vec![listen_line(state, room)];
-    if !state.model_label.is_empty() {
-        tail.push(format!("Running on {}.", state.model_label));
-    }
-    if state.feed_base.is_some() {
-        tail.push("Calendar feed: ask me for the calendar link.".to_owned());
-    }
-    lines.truncate(LINES.saturating_sub(tail.len()));
-    lines.extend(tail);
-    (lines.join("\n"), need)
+    lines
 }
 
 /// Brings every room's state message up to date after a step: posts it on
@@ -157,6 +171,8 @@ fn post(
             message: None,
             rendered: text.clone(),
             shown: text.clone(),
+            editing: None,
+            failures: 0,
         },
     );
     queue(
@@ -226,7 +242,50 @@ pub(crate) fn on_repin(state: &mut GroupState, room: &PlatformRoomId, fx: &mut V
     }
     pin.shown = pin.rendered.clone();
     let text = pin.shown.clone();
-    edit(state, fx, room, &message, text);
+    let id = edit(state, fx, room, &message, text);
+    if let Some(pin) = state.pins.get_mut(room) {
+        pin.editing = Some(id);
+    }
+}
+
+/// The platform answered for an edit. A failed edit is tried again a minute
+/// later, `EDIT_TRIES` tries in all, and a message that is gone is posted
+/// afresh. Returns whether `id` was a state message's edit.
+pub(crate) fn on_edit_result(
+    state: &mut GroupState,
+    id: &ActionId,
+    ok: bool,
+    error: Option<&str>,
+) -> bool {
+    let Some((room, pin)) = state
+        .pins
+        .iter_mut()
+        .find(|(_, p)| p.editing.as_ref() == Some(id))
+    else {
+        return false;
+    };
+    pin.editing = None;
+    let error = error.unwrap_or_default().to_lowercase();
+    // Telegram refuses an edit that changes nothing, which leaves it as wanted.
+    if ok || error.contains("not modified") {
+        pin.failures = 0;
+        return true;
+    }
+    if ["not found", "not_found", "unknown message"]
+        .iter()
+        .any(|gone| error.contains(gone))
+    {
+        let room = room.clone();
+        state.pins.remove(&room);
+        return true;
+    }
+    pin.failures += 1;
+    if pin.failures < EDIT_TRIES {
+        pin.shown.clear();
+    } else {
+        pin.failures = 0;
+    }
+    true
 }
 
 /// The state message failed to send or was deleted: post afresh on next need.

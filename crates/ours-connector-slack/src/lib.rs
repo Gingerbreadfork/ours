@@ -25,7 +25,7 @@ use event::Event;
 use ours_connector::Connector;
 use ours_types::{Capabilities, InboundEvent, Instant, Outbound, OutboundAction, Platform};
 use slack_morphism::api::SlackApiAuthTestResponse;
-use slack_morphism::{SlackChannelId, SlackChannelInfo, SlackUserId};
+use slack_morphism::{SlackChannelId, SlackChannelInfo, SlackTs, SlackUserId};
 use socket::SocketMessage;
 use state::{State, Want};
 use std::collections::HashSet;
@@ -376,6 +376,20 @@ impl Io {
         self.record_channel(&info).await
     }
 
+    /// Learn which thread a message is in. When the lookup fails, a reaction
+    /// to it lands in the channel.
+    async fn fetch_thread(&self, channel: &SlackChannelId, ts: &SlackTs) {
+        match self.api.thread_ts(channel, ts).await {
+            Ok(thread) => lock(&self.state).record_message(channel, ts, thread.as_ref()),
+            Err(error) => tracing::warn!(
+                channel = %channel.0,
+                ts = %ts.0,
+                %error,
+                "could not find a message's thread"
+            ),
+        }
+    }
+
     async fn record_channel(&self, info: &SlackChannelInfo) -> bool {
         let members = match self.api.members(&info.id).await {
             Ok(members) => members,
@@ -425,6 +439,10 @@ impl Io {
             let alive = match want {
                 Want::User(id) => self.fetch_users(vec![id]).await,
                 Want::Channel(id) => self.fetch_channel(&id).await,
+                Want::Thread(channel, ts) => {
+                    self.fetch_thread(&channel, &ts).await;
+                    true
+                }
             };
             if !alive {
                 return false;

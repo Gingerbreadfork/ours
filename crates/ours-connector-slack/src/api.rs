@@ -91,12 +91,26 @@ struct PostMessage<'a> {
     unfurl_media: bool,
 }
 
+/// The body of `chat.update`, plain text like a post.
 #[derive(Debug, Serialize)]
 struct UpdateMessage<'a> {
     channel: &'a str,
     ts: &'a str,
     text: &'a str,
+    mrkdwn: bool,
     link_names: bool,
+}
+
+impl<'a> UpdateMessage<'a> {
+    fn plain(channel: &'a str, ts: &'a str, text: &'a str) -> Self {
+        UpdateMessage {
+            channel,
+            ts,
+            text,
+            mrkdwn: false,
+            link_names: false,
+        }
+    }
 }
 
 #[derive(Debug, Deserialize)]
@@ -375,12 +389,7 @@ impl Api {
         ts: &SlackTs,
         text: &str,
     ) -> Result<(), ApiError> {
-        let body = UpdateMessage {
-            channel: &channel.0,
-            ts: &ts.0,
-            text,
-            link_names: false,
-        };
+        let body = UpdateMessage::plain(&channel.0, &ts.0, text);
         let _: Empty = self
             .call("chat.update", || async {
                 self.client
@@ -525,6 +534,49 @@ impl Api {
             })
             .await?;
         Ok(page.into_page())
+    }
+
+    /// The `thread_ts` Slack reports for a message, `None` when it has none.
+    pub async fn thread_ts(
+        &self,
+        channel: &SlackChannelId,
+        ts: &SlackTs,
+    ) -> Result<Option<SlackTs>, ApiError> {
+        let params = vec![
+            ("channel", Some(channel.0.as_str())),
+            ("ts", Some(ts.0.as_str())),
+            ("limit", Some("1")),
+        ];
+        let replies: Replies = self
+            .call("conversations.replies", || async {
+                self.client
+                    .open_session(&self.bot)
+                    .http_session_api
+                    .http_get("conversations.replies", &params, None)
+                    .await
+            })
+            .await?;
+        Ok(replies.thread_ts())
+    }
+}
+
+/// A `conversations.replies` reply read only for the thread's ts.
+#[derive(Debug, Deserialize)]
+struct Replies {
+    #[serde(default)]
+    messages: Vec<Reply>,
+}
+
+#[derive(Debug, Deserialize)]
+struct Reply {
+    thread_ts: Option<SlackTs>,
+}
+
+impl Replies {
+    /// The first message is the one asked about or its thread's parent, and
+    /// both carry the thread's ts.
+    fn thread_ts(self) -> Option<SlackTs> {
+        self.messages.into_iter().next().and_then(|m| m.thread_ts)
     }
 }
 
@@ -684,6 +736,34 @@ mod tests {
                 .get("thread_ts")
                 .is_none()
         );
+    }
+
+    #[test]
+    fn an_edit_is_plain_text_like_a_post() {
+        let json = serde_json::to_value(UpdateMessage::plain("C1", "1.000000", "_x_")).unwrap();
+        assert_eq!(json["mrkdwn"], false);
+        assert_eq!(json["link_names"], false);
+        assert_eq!(json["text"], "_x_");
+    }
+
+    #[test]
+    fn a_messages_thread_is_read_from_the_first_reply() {
+        let read = |reply| {
+            serde_json::from_value::<Replies>(reply)
+                .unwrap()
+                .thread_ts()
+                .map(|t| t.0)
+        };
+        let in_thread = serde_json::json!({ "ok": true, "messages": [
+            { "type": "message", "user": "U1", "text": "x", "ts": "101.000000",
+              "thread_ts": "100.000000", "attachments": [{ "id": "odd" }] }
+        ], "has_more": true });
+        assert_eq!(read(in_thread).as_deref(), Some("100.000000"));
+        let unthreaded = serde_json::json!({ "ok": true, "messages": [
+            { "type": "message", "user": "U1", "text": "x", "ts": "100.000000" }
+        ] });
+        assert_eq!(read(unthreaded), None);
+        assert_eq!(read(serde_json::json!({ "ok": true })), None);
     }
 
     #[test]

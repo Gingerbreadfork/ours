@@ -17,7 +17,8 @@ use std::collections::{BTreeMap, BTreeSet, HashMap, HashSet, VecDeque};
 /// it next has a message.
 pub const THREADS_PER_CHANNEL: usize = 100;
 
-/// Thread replies remembered so that reactions to them land in the thread.
+/// Channel messages remembered with their thread, so a reaction to one needs
+/// no lookup.
 const PLACED: usize = 10_000;
 
 /// Something to fetch before an event can be handled.
@@ -25,6 +26,8 @@ const PLACED: usize = 10_000;
 pub enum Want {
     User(SlackUserId),
     Channel(SlackChannelId),
+    /// Which thread a reacted-to message is in.
+    Thread(SlackChannelId, SlackTs),
 }
 
 /// Ordered maps and sets are keyed by the id's string, since Slack's id
@@ -60,17 +63,18 @@ impl ChannelRecord {
     }
 }
 
-/// Which thread a reply is in, for events that only carry the reply's ts.
+/// Which thread a message is in, or `None` for one in no thread, for events
+/// that only carry the message's ts.
 #[derive(Debug, Default)]
 struct Placed {
-    parents: HashMap<(SlackChannelId, SlackTs), SlackTs>,
+    parents: HashMap<(SlackChannelId, SlackTs), Option<SlackTs>>,
     order: VecDeque<(SlackChannelId, SlackTs)>,
 }
 
 impl Placed {
-    fn insert(&mut self, channel: &SlackChannelId, ts: &SlackTs, parent: &SlackTs) {
+    fn insert(&mut self, channel: &SlackChannelId, ts: &SlackTs, parent: Option<&SlackTs>) {
         let key = (channel.clone(), ts.clone());
-        if self.parents.insert(key.clone(), parent.clone()).is_none() {
+        if self.parents.insert(key.clone(), parent.cloned()).is_none() {
             self.order.push_back(key);
             if self.order.len() > PLACED
                 && let Some(oldest) = self.order.pop_front()
@@ -80,8 +84,12 @@ impl Placed {
         }
     }
 
-    fn get(&self, channel: &SlackChannelId, ts: &SlackTs) -> Option<&SlackTs> {
-        self.parents.get(&(channel.clone(), ts.clone()))
+    /// `None` when the message is not remembered, `Some(None)` when it is in
+    /// no thread.
+    fn get(&self, channel: &SlackChannelId, ts: &SlackTs) -> Option<Option<&SlackTs>> {
+        self.parents
+            .get(&(channel.clone(), ts.clone()))
+            .map(Option::as_ref)
     }
 }
 
@@ -385,7 +393,7 @@ impl State {
 
     /// The parent of a reply the connector has seen or sent.
     pub fn thread_parent(&self, channel: &SlackChannelId, ts: &SlackTs) -> Option<SlackTs> {
-        self.placed.get(channel, ts).cloned()
+        self.placed.get(channel, ts).flatten().cloned()
     }
 
     /// A thread the agent is posting into. Synced the first time.
@@ -394,7 +402,21 @@ impl State {
     }
 
     pub fn record_reply(&mut self, channel: &SlackChannelId, ts: &SlackTs, parent: &SlackTs) {
-        self.placed.insert(channel, ts, parent);
+        self.placed.insert(channel, ts, Some(parent));
+    }
+
+    /// Remember which thread a channel message is in, from the `thread_ts`
+    /// Slack gives for it. DMs are skipped, since their reactions never land
+    /// in a thread.
+    pub fn record_message(
+        &mut self,
+        channel: &SlackChannelId,
+        ts: &SlackTs,
+        thread_ts: Option<&SlackTs>,
+    ) {
+        if !self.is_dm(channel) {
+            self.placed.insert(channel, ts, parent_of(thread_ts, ts));
+        }
     }
 
     pub fn dm_with(&self, user: &SlackUserId) -> Option<SlackChannelId> {
@@ -457,13 +479,20 @@ impl State {
                     want_user(&mut wants, author);
                 }
             }
-            Event::Reaction { user, channel, .. } => {
+            Event::Reaction {
+                user, channel, ts, ..
+            } => {
                 if self.is_dm(channel) {
                     if !self.dms.contains_key(&channel.0) {
                         want_user(&mut wants, user);
                     }
-                } else if !self.channels.contains_key(&channel.0) {
-                    wants.push(Want::Channel(channel.clone()));
+                } else {
+                    if !self.channels.contains_key(&channel.0) {
+                        wants.push(Want::Channel(channel.clone()));
+                    }
+                    if *user != self.me && self.placed.get(channel, ts).is_none() {
+                        wants.push(Want::Thread(channel.clone(), ts.clone()));
+                    }
                 }
             }
             Event::MemberJoined { user, channel } => {
@@ -563,8 +592,11 @@ impl State {
             return Vec::new();
         };
         let ts = &event.origin.ts;
-        if !dm && let Some(parent) = parent_of(event.origin.thread_ts.as_ref(), ts) {
-            events.extend(self.see_thread(channel, parent));
+        if !dm {
+            let parent = parent_of(event.origin.thread_ts.as_ref(), ts);
+            if let Some(parent) = parent {
+                events.extend(self.see_thread(channel, parent));
+            }
             self.placed.insert(channel, ts, parent);
         }
         let content = event.content.as_ref();
@@ -672,7 +704,7 @@ impl State {
             return Vec::new();
         };
         let room = match self.placed.get(channel, ts) {
-            Some(parent) if !dm => map::thread_room_id(channel, parent),
+            Some(Some(parent)) if !dm => map::thread_room_id(channel, parent),
             _ => map::channel_room_id(channel),
         };
         let (message, user, emoji) = (
@@ -1187,6 +1219,71 @@ mod tests {
         };
         assert_eq!((room.as_str(), emoji.as_str()), ("C1", "👍"));
         assert!(handle(&mut state, reaction(ME, "C1", "100.000000", "eyes", true)).is_empty());
+    }
+
+    #[test]
+    fn after_a_restart_a_reaction_asks_which_thread_its_message_is_in() {
+        let mut state = synced();
+        let c1 = SlackChannelId("C1".to_owned());
+        let m = |s: &str| SlackTs(s.to_owned());
+
+        let on_reply = event(reaction("USAM", "C1", "101.000000", "one", true));
+        assert_eq!(
+            state.missing(&on_reply),
+            [Want::Thread(c1.clone(), m("101.000000"))]
+        );
+        state.record_message(&c1, &m("101.000000"), Some(&m("100.000000")));
+        assert!(state.missing(&on_reply).is_empty());
+        assert!(matches!(
+            state.handle(&on_reply, at()).as_slice(),
+            [InboundEvent::ReactionAdded { room, .. }] if room.as_str() == "C1:100.000000"
+        ));
+
+        let on_parent = event(reaction("UJO", "C1", "100.000000", "eyes", true));
+        assert_eq!(
+            state.missing(&on_parent),
+            [Want::Thread(c1.clone(), m("100.000000"))]
+        );
+        state.record_message(&c1, &m("100.000000"), Some(&m("100.000000")));
+        let again = event(reaction("UALEX", "C1", "100.000000", "eyes", false));
+        assert!(state.missing(&again).is_empty(), "looked up once");
+        assert!(matches!(
+            state.handle(&again, at()).as_slice(),
+            [InboundEvent::ReactionRemoved { room, .. }] if room.as_str() == "C1"
+        ));
+    }
+
+    #[test]
+    fn reactions_on_messages_already_placed_need_no_lookup() {
+        let mut state = synced();
+        handle(
+            &mut state,
+            json!({ "type": "message", "channel": "C1", "user": "UJO", "text": "lunch?", "ts": "200.000000" }),
+        );
+        let posted = SlackTs("201.000000".to_owned());
+        state.record_message(&SlackChannelId("C1".to_owned()), &posted, None);
+        for (user, channel, ts) in [
+            ("USAM", "C1", "200.000000"),
+            ("USAM", "C1", "201.000000"),
+            (ME, "C1", "300.000000"),
+            ("UPRIYA", "D1", "300.000000"),
+        ] {
+            let reacted = event(reaction(user, channel, ts, "+1", true));
+            assert!(state.missing(&reacted).is_empty(), "{user} {channel} {ts}");
+        }
+    }
+
+    #[test]
+    fn placed_messages_are_bounded() {
+        let mut placed = Placed::default();
+        let c1 = SlackChannelId("C1".to_owned());
+        let ts = |n: usize| SlackTs(format!("{n}.000000"));
+        for n in 0..=PLACED {
+            placed.insert(&c1, &ts(n), None);
+        }
+        assert_eq!(placed.get(&c1, &ts(0)), None);
+        assert_eq!(placed.get(&c1, &ts(1)), Some(None));
+        assert_eq!(placed.parents.len(), PLACED);
     }
 
     #[test]

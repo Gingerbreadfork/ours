@@ -113,10 +113,21 @@ enum Ended {
     Closed,
 }
 
+/// Where each Socket Mode connection is opened.
+pub trait SocketUrl {
+    async fn socket_url(&self) -> Result<String, ApiError>;
+}
+
+impl SocketUrl for Api {
+    async fn socket_url(&self) -> Result<String, ApiError> {
+        Api::socket_url(self).await
+    }
+}
+
 /// Keep a Socket Mode connection up until the connector stops listening or
 /// the app-level token is refused.
 pub async fn run(
-    api: Arc<Api>,
+    api: Arc<impl SocketUrl>,
     tls: Arc<rustls::ClientConfig>,
     tx: mpsc::UnboundedSender<SocketMessage>,
 ) {
@@ -154,7 +165,10 @@ pub async fn run(
             }
         };
         match session(socket, &tx, &mut resync, &mut failures, &mut seen).await {
-            Ended::Refresh => tracing::debug!("Socket Mode refresh"),
+            Ended::Refresh => {
+                tracing::debug!("Socket Mode refresh");
+                resync = true;
+            }
             Ended::Lost => {
                 tracing::warn!("Socket Mode connection lost; reconnecting");
                 resync = true;
@@ -293,6 +307,55 @@ mod tests {
         let bot = bot_token_failure(&ApiError::new("auth.test", "token_revoked")).unwrap();
         assert!(bot.contains("token (xoxb-)") && bot.contains("token_revoked"));
         assert!(bot_token_failure(&ApiError::new("auth.test", "fatal_error")).is_none());
+    }
+
+    /// Hands out a local server's URL in place of Slack's.
+    struct Local(String);
+
+    impl SocketUrl for Local {
+        async fn socket_url(&self) -> Result<String, ApiError> {
+            Ok(self.0.clone())
+        }
+    }
+
+    async fn accept(listener: &tokio::net::TcpListener) -> WebSocketStream<tokio::net::TcpStream> {
+        let (stream, _) = listener.accept().await.unwrap();
+        tokio_tungstenite::accept_async(stream).await.unwrap()
+    }
+
+    #[tokio::test]
+    async fn a_refreshed_connection_asks_for_a_resync() {
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("ws://{}", listener.local_addr().unwrap());
+        let hello = || WsMessage::text(r#"{"type":"hello"}"#);
+        let server = tokio::spawn(async move {
+            let mut first = accept(&listener).await;
+            first.send(hello()).await.unwrap();
+            first
+                .send(WsMessage::text(
+                    r#"{"type":"disconnect","reason":"refresh_requested"}"#,
+                ))
+                .await
+                .unwrap();
+            let mut second = accept(&listener).await;
+            second.send(hello()).await.unwrap();
+            second
+        });
+        let (tx, mut rx) = mpsc::unbounded_channel();
+        let tls = Arc::new(crate::tls::client_config().unwrap());
+        let socket = tokio::spawn(run(Arc::new(Local(url)), tls, tx));
+
+        let mut resyncs = Vec::new();
+        while resyncs.len() < 2 {
+            let message = tokio::time::timeout(Duration::from_secs(10), rx.recv()).await;
+            match message.unwrap() {
+                Some(SocketMessage::Connected { resync }) => resyncs.push(resync),
+                other => panic!("{other:?}"),
+            }
+        }
+        socket.abort();
+        server.abort();
+        assert_eq!(resyncs, [false, true]);
     }
 
     #[test]

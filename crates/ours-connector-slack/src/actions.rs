@@ -124,12 +124,9 @@ impl Actions {
         let (channel, thread) = thread_for(&lock(&self.state), target, reply);
         let ts = self.api.post(&channel, text, thread.as_ref()).await?;
         let mut state = lock(&self.state);
+        state.record_message(&channel, &ts, thread.as_ref());
         let events = match &thread {
-            Some(parent) => {
-                let events = state.open_thread(&channel, parent);
-                state.record_reply(&channel, &ts, parent);
-                events
-            }
+            Some(parent) => state.open_thread(&channel, parent),
             None => Vec::new(),
         };
         Ok(Outcome {

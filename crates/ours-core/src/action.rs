@@ -17,8 +17,9 @@ use ours_types::{
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
 
-/// Records kept, oldest dropped first.
-pub const ACTIONS_KEPT: usize = 500;
+/// The most records kept outside a legal hold. The daily sweep drops them
+/// by age; past this many, retention drops the oldest early and says so.
+pub const ACTIONS_KEPT: usize = 10_000;
 
 /// What kind of thing an action did.
 #[derive(
@@ -336,12 +337,9 @@ pub fn may_leave_unprompted(state: &GroupState) -> bool {
     state.profile.unprompted_outbound == Outbound::Do && !state.is_observing()
 }
 
-/// Appends a record, dropping the oldest past `ACTIONS_KEPT`.
+/// Appends a record. Only the retention sweep and its ceiling drop them.
 pub(crate) fn push(state: &mut GroupState, record: ActionRecord) {
     state.actions.push_back(record);
-    while state.actions.len() > ACTIONS_KEPT {
-        state.actions.pop_front();
-    }
 }
 
 pub fn find<'a>(state: &'a GroupState, id: &ActionId) -> Option<&'a ActionRecord> {

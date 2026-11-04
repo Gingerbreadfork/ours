@@ -4,6 +4,7 @@
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
 use ours_core::sim::{Sim, dms, messages, model_requests};
+use ours_core::state::RING_CAPACITY;
 use ours_core::step::CHECK;
 use ours_core::{Command, DECLINE_PREFIX, Input};
 use ours_types::{Kind, PlatformRole, PlatformRoomId};
@@ -122,6 +123,60 @@ fn a_guests_question_still_reaches_the_model() {
     assert_eq!(model_requests(&ask.effects).len(), 1);
     assert!(dms(&ask.effects).is_empty());
     assert_eq!(messages(&ask.effects)[0].0, "Friday at 3.");
+}
+
+#[test]
+fn a_request_the_ring_lost_comes_back_once_as_its_latest_line() {
+    let mut sim = work();
+    sim.dm_room("sam");
+    let ask = sim.say("launch", "dana", ASK);
+    let flag = sim.last_dm_to("sam").expect("flag sent");
+    for i in 0..RING_CAPACITY + 10 {
+        sim.say("launch", "priya", &format!("chatter {i}"));
+    }
+    let room = PlatformRoomId::new("launch");
+    assert!(
+        !sim.state.rooms[&room]
+            .messages
+            .iter()
+            .any(|m| m.id == ask.id)
+    );
+
+    // The model has not answered yet, so nothing else trims the ring.
+    let fx = sim.react("dm-sam", &flag, "sam", CHECK);
+    assert_eq!(model_requests(&fx).len(), 1);
+    let held = &sim.state.rooms[&room].messages;
+    assert!(held.len() <= RING_CAPACITY, "{}", held.len());
+    let back: Vec<_> = held.iter().filter(|m| m.id == ask.id).collect();
+    assert_eq!(back.len(), 1);
+    assert_eq!(back[0].author.as_str(), "dana");
+    assert!(held.iter().all(|m| m.at <= back[0].at));
+}
+
+#[test]
+fn forget_me_withdraws_the_guests_flagged_request() {
+    let mut sim = work();
+    sim.dm_room("sam");
+    sim.say("launch", "dana", ASK);
+    let flag = sim.last_dm_to("sam").expect("flag sent");
+    assert!(sim.state.deferrals.contains_key(&flag));
+
+    sim.say("launch", "dana", "Q, forget me");
+    assert!(
+        !sim.state
+            .deferrals
+            .values()
+            .any(|d| d.asked_by.as_str() == "dana")
+    );
+    let fx = sim.react("dm-sam", &flag, "sam", CHECK);
+    assert!(model_requests(&fx).is_empty());
+    let room = PlatformRoomId::new("launch");
+    assert!(
+        !sim.state.rooms[&room]
+            .messages
+            .iter()
+            .any(|m| m.text.contains("push the review"))
+    );
 }
 
 #[test]

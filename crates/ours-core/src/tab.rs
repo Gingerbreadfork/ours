@@ -172,6 +172,9 @@ pub struct Settlement {
     /// The creditor's DM.
     #[serde(default)]
     pub confirm: Option<PlatformMessageId>,
+    /// The room whose lines it settles; none for lines entered by DM.
+    #[serde(default)]
+    pub room: Option<PlatformRoomId>,
 }
 
 /// What each person owes of a line, in cents, summing to its amount.
@@ -755,7 +758,8 @@ fn line_for(state: &GroupState, message: &Message, now: Instant) -> Option<Ledge
 }
 
 /// "not me" or "double for me" in reply to a tab line. Returns whether it
-/// found a line to change.
+/// changed a line; a word that changes nothing, such as "not me" from
+/// someone outside the split, is left for a ballot or the model.
 pub(crate) fn adjust_words(
     state: &mut GroupState,
     message: &Message,
@@ -769,7 +773,9 @@ pub(crate) fn adjust_words(
     let Some(line) = state.ledger.iter_mut().find(|l| l.id == id) else {
         return false;
     };
-    apply(line, &message.author, how);
+    if !apply(line, &message.author, how) {
+        return false;
+    }
     let line = line.clone();
     let text = format!("Tab: {}.", describe(state, &line));
     let trace = Trace::new(addressed_trigger(state, message), ADJUST_RULE, now);
@@ -874,34 +880,64 @@ pub(crate) fn tab_text(
     }
     let mut ordered: Vec<String> = vec![state.currency.clone()];
     ordered.extend(currencies.iter().filter(|c| **c != state.currency).cloned());
+    let tabs: Vec<(&String, BTreeMap<PlatformUserId, i64>)> = ordered
+        .iter()
+        .filter(|c| currencies.contains(*c))
+        .map(|c| (c, balances_at(state, place, c)))
+        .collect();
     let mut lines = Vec::new();
     if let Some(user) = asker {
-        let own = balances_at(state, place, &state.currency)
-            .get(user)
-            .copied()
-            .unwrap_or(0);
-        lines.push(match own {
-            0 => "You're square.".to_owned(),
-            n if n < 0 => format!("You owe {}.", money(-n)),
-            n => format!("You're owed {}.", money(n)),
-        });
+        lines.push(own_line(state, user, &tabs));
     }
     let mut any = false;
-    for currency in ordered.iter().filter(|c| currencies.contains(*c)) {
-        let balances = balances_at(state, place, currency);
+    for (currency, balances) in &tabs {
         if balances.is_empty() {
             continue;
         }
         any = true;
         lines.push(format!(
             "Tab ({currency}): {}.",
-            balance_parts(state, &balances).join(", ")
+            balance_parts(state, balances).join(", ")
         ));
     }
     if !any {
         lines.push("Everyone's square.".to_owned());
     }
     lines.join("\n")
+}
+
+/// "You owe 7.60 and 12 EUR.": the asker's own balance in every currency,
+/// the group's without a code.
+fn own_line(
+    state: &GroupState,
+    user: &PlatformUserId,
+    tabs: &[(&String, BTreeMap<PlatformUserId, i64>)],
+) -> String {
+    let mut owe = Vec::new();
+    let mut owed = Vec::new();
+    for (currency, balances) in tabs {
+        let n = balances.get(user).copied().unwrap_or(0);
+        let amount = if **currency == state.currency {
+            money(n.abs())
+        } else {
+            format!("{} {currency}", money(n.abs()))
+        };
+        if n < 0 {
+            owe.push(amount);
+        } else if n > 0 {
+            owed.push(amount);
+        }
+    }
+    match (owe.is_empty(), owed.is_empty()) {
+        (true, true) => "You're square.".to_owned(),
+        (false, true) => format!("You owe {}.", join_names(&owe, "and")),
+        (true, false) => format!("You're owed {}.", join_names(&owed, "and")),
+        (false, false) => format!(
+            "You owe {}, and you're owed {}.",
+            join_names(&owe, "and"),
+            join_names(&owed, "and")
+        ),
+    }
 }
 
 /// "Priya +30.40", "Sam -7.60": creditors first, then the largest debts.
@@ -949,28 +985,64 @@ pub(crate) fn answer(
     );
 }
 
-/// "settle up": the fewest transfers, each debtor told by DM with the
-/// creditor's link, and the room told only how many were sent.
+/// Where a line's money is settled: the room it was said in, or none for a
+/// line entered by DM, which every room counts.
+fn ledger_of(state: &GroupState, line: &LedgerLine) -> Option<PlatformRoomId> {
+    let by_dm = state.rooms.get(&line.source.room).is_none_or(|r| r.is_dm());
+    (!by_dm).then(|| line.source.room.clone())
+}
+
+/// The ledgers a settle-up asked in `room` clears: the room's own and the
+/// lines entered by DM, or from a DM every room the asker is in.
+fn ledgers_for(
+    state: &GroupState,
+    room: &PlatformRoomId,
+    asker: &PlatformUserId,
+) -> Vec<Option<PlatformRoomId>> {
+    let mut out: Vec<Option<PlatformRoomId>> = match Place::of(state, room) {
+        Place::Room(room) => vec![Some(room)],
+        Place::Dm(_) => rooms_of(state, asker).into_iter().map(Some).collect(),
+    };
+    out.push(None);
+    out
+}
+
+/// "settle up": the fewest transfers for the tab where it was asked, each
+/// debtor told by DM with the creditor's link, and the room told only how
+/// many were sent. Each room's lines settle apart, so no room's balances
+/// move for another's.
 pub(crate) fn settle_up(
     state: &mut GroupState,
     message: &Message,
     now: Instant,
     fx: &mut Vec<Effect>,
 ) {
-    let mut balances = balances(state);
+    let ledgers = ledgers_for(state, &message.room, &message.author);
     for s in state.settlements.values_mut() {
-        match s.status {
-            SettlementStatus::Asked => s.status = SettlementStatus::Superseded { at: now },
-            SettlementStatus::Paid { .. } if s.currency == state.currency => {
-                *balances.entry(s.from.clone()).or_insert(0) += s.cents;
-                *balances.entry(s.to.clone()).or_insert(0) -= s.cents;
-            }
-            _ => {}
+        if s.status == SettlementStatus::Asked && ledgers.contains(&s.room) {
+            s.status = SettlementStatus::Superseded { at: now };
         }
     }
-    let transfers = transfers(balances);
+    let mut owing: Vec<(Option<PlatformRoomId>, Transfer)> = Vec::new();
+    for ledger in &ledgers {
+        let lines = state
+            .ledger
+            .iter()
+            .filter(|l| &ledger_of(state, l) == ledger);
+        let mut balances = tally(lines, &state.currency);
+        let paid = state.settlements.values().filter(|s| {
+            &s.room == ledger
+                && matches!(s.status, SettlementStatus::Paid { .. })
+                && s.currency == state.currency
+        });
+        for s in paid {
+            *balances.entry(s.from.clone()).or_insert(0) += s.cents;
+            *balances.entry(s.to.clone()).or_insert(0) -= s.cents;
+        }
+        owing.extend(transfers(balances).into_iter().map(|t| (ledger.clone(), t)));
+    }
     let trigger = addressed_trigger(state, message);
-    if transfers.is_empty() {
+    if owing.is_empty() {
         let trace = Trace::new(trigger, SETTLE_RULE, now);
         let text = NOBODY_OWES.to_owned();
         send(
@@ -984,8 +1056,8 @@ pub(crate) fn settle_up(
         );
         return;
     }
-    let debtors: BTreeSet<PlatformUserId> = transfers.iter().map(|t| t.from.clone()).collect();
-    for t in transfers {
+    let debtors: BTreeSet<PlatformUserId> = owing.iter().map(|(_, t)| t.from.clone()).collect();
+    for (ledger, t) in owing {
         let id = state.mint_settlement();
         let settlement = Settlement {
             id: id.clone(),
@@ -997,6 +1069,7 @@ pub(crate) fn settle_up(
             created_at: now,
             asked: None,
             confirm: None,
+            room: ledger,
         };
         let text = ask_text(state, &settlement);
         state.settlements.insert(id.clone(), settlement);
@@ -1082,16 +1155,19 @@ fn mark_paid(state: &mut GroupState, id: &SettlementId, now: Instant, fx: &mut V
     send_dm_then(state, fx, &s.to, text, now, trace, then);
 }
 
-/// The creditor confirmed: a ledger line of its own zeroes what was paid.
+/// The creditor confirmed: a ledger line of its own zeroes what was paid,
+/// counted where the lines it settled are.
 fn confirm(state: &mut GroupState, id: &SettlementId, now: Instant, fx: &mut Vec<Effect>) {
     let Some(s) = state.settlements.get_mut(id) else {
         return;
     };
     s.status = SettlementStatus::Confirmed { at: now };
     let s = s.clone();
-    let source_room = state
-        .dm_room_of(&s.to)
-        .unwrap_or_else(|| PlatformRoomId::new(format!("dm-{}", s.to)));
+    let source_room = s.room.clone().unwrap_or_else(|| {
+        state
+            .dm_room_of(&s.to)
+            .unwrap_or_else(|| PlatformRoomId::new(format!("dm-{}", s.to)))
+    });
     let line_id = state.mint_ledger();
     state.ledger.push(LedgerLine {
         id: line_id,
@@ -1255,14 +1331,14 @@ pub(crate) fn payment_link(
     let in_dm = state.rooms.get(&message.room).is_some_and(|r| r.is_dm());
     let link = link.trim();
     let text = if !in_dm {
-        state.room_mut(&message.room).remove(&message.id);
+        crate::rights::redact_message(state, fx, &message.room, &message.id);
         fx.push(Effect::Notice(format!(
             "Did not keep a payment link said in {}.",
             state.room_label(&message.room)
         )));
         LINK_NOT_KEPT
     } else if looks_like_card(link) {
-        state.room_mut(&message.room).remove(&message.id);
+        crate::rights::redact_message(state, fx, &message.room, &message.id);
         NO_CARDS
     } else {
         let kept: String = link.chars().take(LINK_CHARS).collect();
@@ -1297,6 +1373,66 @@ pub(crate) fn payment_link(
 fn looks_like_card(text: &str) -> bool {
     let digits: String = text.chars().filter(|c| !matches!(c, ' ' | '-')).collect();
     (13..=19).contains(&digits.len()) && digits.chars().all(|c| c.is_ascii_digit())
+}
+
+/// Whether `text` holds a card number anywhere: 13 to 19 digits that pass
+/// the Luhn check and start as payment cards do, written whole or in groups
+/// split by single spaces or dashes. Digits inside a link or a mention, or
+/// run into letters, do not count.
+pub fn has_card_number(text: &str) -> bool {
+    let chars: Vec<char> = text.chars().collect();
+    let mut i = 0;
+    while i < chars.len() {
+        if !chars[i].is_ascii_digit() {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut digits: Vec<u32> = Vec::new();
+        loop {
+            while let Some(d) = chars.get(i).and_then(|c| c.to_digit(10)) {
+                digits.push(d);
+                i += 1;
+            }
+            let joined = matches!(chars.get(i), Some(' ' | '-'))
+                && chars.get(i + 1).is_some_and(char::is_ascii_digit);
+            if !joined {
+                break;
+            }
+            i += 1;
+        }
+        let before = start.checked_sub(1).and_then(|k| chars.get(k)).copied();
+        let after = chars.get(i).copied();
+        if card_edge(before)
+            && card_edge(after)
+            && (13..=19).contains(&digits.len())
+            && digits.first().is_some_and(|d| (2..=6).contains(d))
+            && luhn(&digits)
+        {
+            return true;
+        }
+    }
+    false
+}
+
+/// What may sit next to a card number: nothing, space, or punctuation that
+/// ends or wraps a phrase. A slash, `@` or `<` means a link or a mention.
+fn card_edge(c: Option<char>) -> bool {
+    c.is_none_or(|c| c.is_whitespace() || ",.:;!?()[]\"'*_`|~".contains(c))
+}
+
+fn luhn(digits: &[u32]) -> bool {
+    let sum: u32 = digits
+        .iter()
+        .rev()
+        .enumerate()
+        .map(|(i, &d)| match (i % 2 == 1, d * 2) {
+            (true, twice) if twice > 9 => twice - 9,
+            (true, twice) => twice,
+            (false, _) => d,
+        })
+        .sum();
+    sum.is_multiple_of(10)
 }
 
 const LINK_PREFIXES: [&str; 12] = [
@@ -1354,9 +1490,15 @@ pub(crate) fn void(
     true
 }
 
-/// "forget me": their payment link goes.
-pub(crate) fn forget(state: &mut GroupState, user: &PlatformUserId) {
+/// "forget me": their payment link goes, and settle-ups waiting on them
+/// stop. Their lines stay, since others' shares are on them too.
+pub(crate) fn forget(state: &mut GroupState, user: &PlatformUserId, now: Instant) {
     state.payment_links.remove(user);
+    for s in state.settlements.values_mut() {
+        if s.status == SettlementStatus::Asked && (&s.from == user || &s.to == user) {
+            s.status = SettlementStatus::Superseded { at: now };
+        }
+    }
 }
 
 /// A deleted message takes the lines it put on the tab.
@@ -1428,6 +1570,24 @@ mod tests {
         assert_eq!(signed(-760), "-7.60");
         assert!(looks_like_card("4111 1111 1111 1111"));
         assert!(!looks_like_card("https://monzo.me/priya"));
+        for card in [
+            "my card is 4111 1111 1111 1111",
+            "4111-1111-1111-1111, exp 12/29",
+            "use 5555555555554444.",
+            "amex (3782 822463 10005) works",
+        ] {
+            assert!(has_card_number(card), "{card}");
+        }
+        for not in [
+            "4111 1111 1111 1112",
+            "call 1730000000000 ms",
+            "<@412345678901234561> hi",
+            "https://discord.com/channels/1/4111111111111111/2",
+            "order A4111111111111111",
+            "the print run is 500 copies",
+        ] {
+            assert!(!has_card_number(not), "{not}");
+        }
         assert_eq!(
             link_in("My payment link is https://monzo.me/priya").as_deref(),
             Some("https://monzo.me/priya")

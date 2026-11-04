@@ -32,7 +32,7 @@ use crate::reactions::{self, Meaning};
 use crate::recall::{self, Citation, RECALLED, recall};
 use crate::recur;
 use crate::retention;
-use crate::rights::{self, FORGOTTEN_NOTE};
+use crate::rights;
 use crate::sentence::{self, Sentence, TabSentence};
 use crate::settings::{self, SETTING_NOTE, addressed_trigger};
 use crate::setup;
@@ -143,6 +143,15 @@ fn inbound(state: &mut GroupState, event: InboundEvent, now: Instant, fx: &mut V
             }
         }
         InboundEvent::Message(message) => on_message(state, message, now, fx),
+        InboundEvent::MessageEdited(message)
+            if !state.is_me(&message.author) && tab::has_card_number(&message.text) =>
+        {
+            rights::redact_message(state, fx, &message.room, &message.id);
+            fx.push(Effect::Notice(format!(
+                "Did not keep a card number edited into a message in {}.",
+                state.room_label(&message.room)
+            )));
+        }
         InboundEvent::MessageEdited(message) => {
             let held = state
                 .rooms
@@ -226,15 +235,27 @@ fn inbound(state: &mut GroupState, event: InboundEvent, now: Instant, fx: &mut V
         } => {
             on_action_result(state, &id, ok, message, error, now, fx);
         }
-        InboundEvent::History { room, messages } => {
+        InboundEvent::History { room, mut messages } => {
             for m in &messages {
                 if state.is_human(&room, &m.author) {
                     state.saw(&m.author, m.at);
                 }
             }
+            let cards: Vec<PlatformMessageId> = messages
+                .iter()
+                .filter(|m| tab::has_card_number(&m.text))
+                .map(|m| m.id.clone())
+                .collect();
+            if !cards.is_empty() {
+                fx.push(Effect::Redact {
+                    messages: cards,
+                    user: None,
+                });
+            }
             if backfill::waiting(state, &room) {
                 backfill::on_history(state, &room, messages, now, fx);
             } else {
+                messages.retain(|m| !tab::has_card_number(&m.text));
                 state.room_mut(&room).prepend(messages);
             }
         }
@@ -288,6 +309,14 @@ fn on_message(state: &mut GroupState, message: Message, now: Instant, fx: &mut V
         .get(&message.room)
         .is_some_and(|r| r.messages.iter().any(|m| m.id == message.id));
     let fresh = !from_me && !seen && !state.is_bot(&message.room, &message.author);
+    if !from_me && !seen && tab::has_card_number(&message.text) {
+        if fresh {
+            patterns::record(state, &message.room, &message.author, message.at, now);
+            state.saw(&message.author, message.at);
+        }
+        card_number(state, &message, now, fx);
+        return;
+    }
     let addressed = fresh && is_addressed(state, &message);
     let room = state.room_mut(&message.room);
     if from_me {
@@ -317,7 +346,7 @@ fn link_in_room(state: &mut GroupState, message: &Message, now: Instant, fx: &mu
     if state.rooms.get(&message.room).is_some_and(|r| r.is_dm()) {
         return;
     }
-    state.room_mut(&message.room).remove(&message.id);
+    rights::redact_message(state, fx, &message.room, &message.id);
     let label = state.room_label(&message.room);
     let text = format!(
         "I didn't keep the payment link you posted in {label}. DM it to me and I'll only show it to people who owe you."
@@ -331,6 +360,39 @@ fn link_in_room(state: &mut GroupState, message: &Message, now: Instant, fx: &mu
         now,
     );
     send_dm(state, fx, &message.author, text, now, trace, false);
+}
+
+/// A card number, wherever it was said: never held, read or sent to a
+/// model, and scrubbed from the journal. A person hears why, in the room
+/// when they spoke to the agent and by DM otherwise; a bot hears nothing.
+fn card_number(state: &mut GroupState, message: &Message, now: Instant, fx: &mut Vec<Effect>) {
+    let room = &message.room;
+    rights::redact_message(state, fx, room, &message.id);
+    let label = state.room_label(room);
+    fx.push(Effect::Notice(format!(
+        "Did not keep a card number said in {label}."
+    )));
+    if !state.is_human(room, &message.author) {
+        return;
+    }
+    let trace = Trace::new(
+        format!(
+            "{} posted a card number in {label}",
+            state.name_of(&message.author)
+        ),
+        "card numbers are never kept",
+        now,
+    );
+    let in_dm = state.rooms.get(room).is_some_and(|r| r.is_dm());
+    if in_dm || is_addressed(state, message) {
+        let reply_to = Some(message.id.clone());
+        send(state, fx, room, tab::NO_CARDS, reply_to, now, trace);
+    } else {
+        let text = format!(
+            "I didn't keep the card number you posted in {label}. A payment link or handle works, by DM."
+        );
+        send_dm(state, fx, &message.author, text, now, trace, false);
+    }
 }
 
 /// 👀 first, then the first conversation, a ruled sentence or a model call.
@@ -1680,14 +1742,20 @@ fn approve(
             let line = rights::apply(
                 state,
                 &change,
+                room,
                 &deferral.asked_by,
                 &deferral.request,
                 now,
                 fx,
             );
+            // A read for the extractor answers on its own, as it would for the lead.
+            let Some(line) = line else {
+                fx.push(Effect::Notice(format!("Memory: {credit}")));
+                return;
+            };
             let text = format!("{line} {credit}");
             let note = Recording::Note {
-                why: FORGOTTEN_NOTE.to_owned(),
+                why: change.note().to_owned(),
             };
             send_as(state, fx, room, text, reply_to, now, trace, note);
             fx.push(Effect::Notice(format!("Memory: {line} {credit}")));
@@ -1740,7 +1808,8 @@ fn approve(
 
 /// Runs a guest's request through the addressed path as the approving
 /// lead's own words, in the room it was made in. The room keeps the
-/// guest as the author of what they said.
+/// guest as the author of what they said; a request the ring no longer
+/// holds comes back as its latest line, since that is when it is answered.
 #[allow(clippy::too_many_arguments)]
 fn take_up(
     state: &mut GroupState,
@@ -1772,7 +1841,7 @@ fn take_up(
                 attachments: Vec::new(),
                 edited: false,
             };
-            state.room_mut(room).messages.push_back(original.clone());
+            state.room_mut(room).push(original.clone());
             original
         }
     };

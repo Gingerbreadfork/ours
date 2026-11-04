@@ -252,7 +252,11 @@ pub(crate) fn on_history(
     let cutoff = bf.cutoff;
     let cursor = messages.iter().min_by_key(|m| m.at).map(|m| m.id.clone());
     let older = messages.iter().any(|m| m.at < cutoff);
-    let mut page: Vec<Message> = messages.into_iter().filter(|m| m.at >= cutoff).collect();
+    // Paging counts every message; a card number is never read or held.
+    let mut page: Vec<Message> = messages
+        .into_iter()
+        .filter(|m| m.at >= cutoff && !crate::tab::has_card_number(&m.text))
+        .collect();
     page.sort_by_key(|m| m.at);
     let left = usize::try_from(MAX_MESSAGES.saturating_sub(bf.read)).unwrap_or(0);
     if page.len() > left {

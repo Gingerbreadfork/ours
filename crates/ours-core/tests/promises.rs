@@ -7,16 +7,17 @@
 
 use ours_core::commitment::PIN;
 use ours_core::sim::{
-    Sim, any_send, away_draft, dms, edits, extract_requests, instant, messages, model_requests,
-    notices, paid, pinned, promise, reactions, texts,
+    Sim, any_send, away_draft, classify_requests, dms, edits, extract_requests, instant, messages,
+    model_requests, notices, paid, pinned, promise, reactions, redactions, texts,
 };
-use ours_core::tab::{DOUBLE, LINK_NOT_KEPT, LINK_SAVED, NOT_ME};
+use ours_core::tab::{DOUBLE, LINK_NOT_KEPT, LINK_SAVED, NO_CARDS, NOT_ME};
 use ours_core::{
     Command, CommitmentStatus, Effect, GroupState, Input, LineKind, SettlementStatus, Transfer,
     balances, render_ics, settle, step,
 };
 use ours_types::{
-    Capabilities, Extraction, Kind, PlatformMessageId, PlatformRole, PlatformRoomId, PlatformUserId,
+    Capabilities, Extraction, InboundEvent, Kind, LedgerDraft, Message, PlatformMessageId,
+    PlatformRole, PlatformRoomId, PlatformUserId,
 };
 
 const MIN: i64 = 60;
@@ -446,6 +447,10 @@ fn a_payment_link_said_in_a_room_is_not_kept() {
     assert!(sim.state.payment_links.is_empty());
     let held = &sim.state.rooms[&PlatformRoomId::new("dinner")].messages;
     assert!(!held.iter().any(|m| m.id == said.id));
+    assert_eq!(
+        redactions(&said.effects),
+        vec![(std::slice::from_ref(&said.id), None)]
+    );
 
     // Unaddressed, it is dropped too, and its author told by DM.
     let quiet = sim.say("dinner", "jo", "my payment link is https://paypal.me/jo");
@@ -455,6 +460,208 @@ fn a_payment_link_said_in_a_room_is_not_kept() {
     let held = &sim.state.rooms[&PlatformRoomId::new("dinner")].messages;
     assert!(!held.iter().any(|m| m.id == quiet.id));
     assert!(sim.state.payment_links.is_empty());
+    assert_eq!(
+        redactions(&quiet.effects),
+        vec![(std::slice::from_ref(&quiet.id), None)]
+    );
+}
+
+#[test]
+fn a_card_number_anywhere_is_never_kept() {
+    let mut sim = dinner();
+    let room = PlatformRoomId::new("dinner");
+    let held = |sim: &Sim, id: &PlatformMessageId| {
+        sim.state.rooms[&room].messages.iter().any(|m| &m.id == id)
+    };
+
+    // Unaddressed: never read or held, scrubbed, and its author told by DM.
+    let quiet = sim.say(
+        "dinner",
+        "jo",
+        "my card is 4111 1111 1111 1111 if anyone needs it",
+    );
+    assert!(texts(&quiet.effects).is_empty());
+    assert!(extract_requests(&quiet.effects).is_empty());
+    assert!(classify_requests(&quiet.effects).is_empty());
+    assert!(!held(&sim, &quiet.id));
+    assert_eq!(
+        redactions(&quiet.effects),
+        vec![(std::slice::from_ref(&quiet.id), None)]
+    );
+    assert_eq!(
+        dms_to(&quiet.effects, "jo"),
+        vec![
+            "I didn't keep the card number you posted in #dinner. A payment link or handle works, by DM."
+        ]
+    );
+
+    // Addressed: one line, and the model never sees it.
+    let asked = sim.say(
+        "dinner",
+        "sam",
+        "Q, put the tickets on 5555-5555-5555-4444 please",
+    );
+    assert_eq!(messages(&asked.effects), vec![(NO_CARDS, Some(&asked.id))]);
+    assert!(model_requests(&asked.effects).is_empty());
+    assert!(!held(&sim, &asked.id));
+    assert_eq!(
+        redactions(&asked.effects),
+        vec![(std::slice::from_ref(&asked.id), None)]
+    );
+
+    // By DM, even as a payment link.
+    let dm = sim.dm("kim", "my payment link is 4111111111111111");
+    assert_eq!(texts(&dm.effects), vec![NO_CARDS]);
+    assert_eq!(redactions(&dm.effects).len(), 1);
+    assert!(sim.state.payment_links.is_empty());
+
+    // An edit that adds one takes the message out.
+    let original = sim.message("dinner", "alex", "paying for mine now");
+    sim.post(original.clone());
+    assert!(held(&sim, &original.id));
+    let edit = sim.feed(Input::Inbound(InboundEvent::MessageEdited(Message {
+        text: "paying for mine now, card 4111 1111 1111 1111".into(),
+        edited: true,
+        ..original.clone()
+    })));
+    assert!(!held(&sim, &original.id));
+    assert_eq!(
+        redactions(&edit),
+        vec![(std::slice::from_ref(&original.id), None)]
+    );
+
+    // No trace, record or ring keeps any of the digits.
+    let json = serde_json::to_string(&sim.state).unwrap();
+    for digits in ["1111 1111", "4111111111111111", "5555-5555"] {
+        assert!(!json.contains(digits), "{digits} kept");
+    }
+}
+
+#[test]
+fn settling_up_in_one_room_leaves_another_rooms_tab_alone() {
+    let mut sim = dinner();
+    sim.room(
+        "climbing",
+        "climbing",
+        &[regular("priya", "Priya"), regular("sam", "Sam")],
+    );
+    sim.pays(vec![paid("Priya", 38.0, "wine")]);
+    sim.say("dinner", "priya", "I got the wine, 38");
+    let line = tab_line(&sim);
+    sim.reply("dinner", "sam", "not me", &line);
+    sim.pays(vec![paid("Sam", 20.0, "chalk")]);
+    sim.say("climbing", "sam", "I got the chalk, 20");
+    let climbing = "Tab (USD): Sam +10.00, Priya -10.00.";
+    let tab = sim.say("climbing", "sam", "Q, what's the tab?");
+    assert_eq!(texts(&tab.effects), vec![climbing]);
+
+    // Settling #dinner asks only for #dinner's lines.
+    let settle_up = sim.say("dinner", "jo", "Q, settle up");
+    assert_eq!(
+        texts(&settle_up.effects),
+        vec!["Sent three people what they owe, by DM."]
+    );
+    let asks = dms(&settle_up.effects);
+    assert_eq!(asks.len(), 3);
+    assert!(
+        asks.iter()
+            .all(|(_, t)| t.starts_with("You owe Priya 9.50 USD")),
+        "{asks:?}"
+    );
+    assert!(dms_to(&settle_up.effects, "priya").is_empty());
+
+    // Kim pays and Priya confirms: #dinner moves, #climbing does not.
+    let ask = sim.last_dm_to("kim").unwrap();
+    sim.react("dm-kim", &ask, "kim", "✅");
+    let confirm = sim.last_dm_to("priya").unwrap();
+    sim.react("dm-priya", &confirm, "priya", "✅");
+    let tab = sim.say("climbing", "sam", "Q, what's the tab?");
+    assert_eq!(texts(&tab.effects), vec![climbing]);
+    let owe = sim.say("dinner", "kim", "Q, what do I owe");
+    assert!(texts(&owe.effects)[0].starts_with("You're square."));
+
+    // #climbing settles on its own.
+    let there = sim.say("climbing", "sam", "Q, settle up");
+    assert_eq!(
+        dms_to(&there.effects, "priya"),
+        vec![
+            "You owe Sam 10.00 USD for the tab. Ask Sam for their details, then react ✅ here once you've paid."
+        ]
+    );
+    assert_eq!(dms(&there.effects).len(), 1);
+}
+
+#[test]
+fn forget_me_stops_their_settle_up_but_keeps_the_lines() {
+    let mut sim = dinner();
+    sim.pays(vec![paid("Priya", 38.0, "wine")]);
+    sim.say("dinner", "priya", "I got the wine, 38");
+    sim.say("dinner", "sam", "Q, settle up");
+    let before = balances(&sim.state);
+    sim.say("dinner", "alex", "Q, forget me");
+    let alex = sim
+        .state
+        .settlements
+        .values()
+        .find(|s| s.from == user("alex"))
+        .unwrap();
+    assert!(matches!(alex.status, SettlementStatus::Superseded { .. }));
+    let kim = sim
+        .state
+        .settlements
+        .values()
+        .find(|s| s.from == user("kim"))
+        .unwrap();
+    assert_eq!(kim.status, SettlementStatus::Asked);
+    assert_eq!(balances(&sim.state), before);
+}
+
+#[test]
+fn not_me_from_outside_the_split_changes_nothing_and_says_nothing_of_it() {
+    let mut sim = dinner();
+    sim.pays(vec![paid("Priya", 38.0, "wine")]);
+    sim.say("dinner", "priya", "I got the wine, 38");
+    let line = tab_line(&sim);
+    sim.reply("dinner", "sam", "not me", &line);
+    let before = sim.state.ledger[0].clone();
+    let again = sim.reply("dinner", "sam", "not me", &line);
+    assert!(
+        !texts(&again.effects).iter().any(|t| t.starts_with("Tab:")),
+        "{:?}",
+        texts(&again.effects)
+    );
+    assert_eq!(model_requests(&again.effects).len(), 1);
+    assert_eq!(sim.state.ledger[0], before);
+}
+
+#[test]
+fn what_do_i_owe_counts_every_currency() {
+    let mut sim = dinner();
+    sim.pays(vec![LedgerDraft {
+        currency: Some("EUR".into()),
+        ..paid("Priya", 12.0, "tickets")
+    }]);
+    sim.say(
+        "dinner",
+        "priya",
+        "I got the tickets, 12 euros, split it between me and Jo",
+    );
+    let owe = sim.say("dinner", "jo", "Q, what do I owe");
+    assert_eq!(
+        texts(&owe.effects),
+        vec!["You owe 6 EUR.\nTab (EUR): Priya +6.00, Jo -6.00."]
+    );
+    sim.pays(vec![paid("Jo", 10.0, "cab")]);
+    sim.say(
+        "dinner",
+        "jo",
+        "I paid the cab, 10, split it between me and Priya",
+    );
+    let both = sim.say("dinner", "jo", "Q, what do I owe");
+    assert_eq!(
+        texts(&both.effects)[0].lines().next(),
+        Some("You owe 6 EUR, and you're owed 5.")
+    );
 }
 
 #[test]

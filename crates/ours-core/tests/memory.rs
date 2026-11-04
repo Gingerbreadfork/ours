@@ -7,7 +7,9 @@
 use ours_core::extract::NOTHING_TO_KEEP;
 use ours_core::leads::DEFERRAL_REPLY;
 use ours_core::memory::end_of_day;
-use ours_core::rights::{FORGOT_THAT, ILL_DM_YOU, NOTHING_CITED, NOTHING_FROM_YOU, NOTHING_HELD};
+use ours_core::rights::{
+    FORGOT_THAT, ILL_DM_YOU, NOTHING_CITED, NOTHING_FROM_YOU, NOTHING_HELD, WHICH_ONE,
+};
 use ours_core::sim::{
     ClassifierScript, ExtractorScript, ModelScript, Posted, Sim, any_send, citing, dms, draft,
     extract_requests, messages, model_requests, notices, reactions, redactions, self_draft, texts,
@@ -1216,4 +1218,197 @@ fn forget_me_scrubs_the_words_from_why_traces_and_records() {
     );
     assert!(json.contains(ours_core::FORGOTTEN_TRIGGER));
     let _ = asked;
+}
+
+#[test]
+fn a_members_correction_to_someone_elses_fact_waits_for_a_lead() {
+    let mut sim = work();
+    let signs = hear(
+        &mut sim,
+        "launch",
+        "marcus",
+        "priya signs off the print run",
+        vec![draft("Priya", "signs off", "the print run")],
+    );
+    let signs_id = id(&sim, "Priya signs off the print run");
+    sim.script(ModelScript::Reply(citing(
+        "Priya signs it off.",
+        &[signs.id.as_str()],
+    )));
+    sim.say("launch", "sam", "Q, who signs off the print run?");
+    let answer = sim.last_sent_message().unwrap();
+
+    // A guest is declined and nothing changes.
+    let guest = sim.reply("launch", "dana", "that's wrong", &answer);
+    assert_eq!(texts(&guest.effects), vec!["That's one for Priya."]);
+    assert!(redactions(&guest.effects).is_empty());
+    assert!(by_id(&sim, &signs_id).retracted.is_none());
+
+    // A member's correction waits, with the words that came after it.
+    let wrong = sim.reply("launch", "sam", "that's wrong, Jo signs off now", &answer);
+    assert_eq!(texts(&wrong.effects), vec![DEFERRAL_REPLY]);
+    assert!(redactions(&wrong.effects).is_empty());
+    assert!(extract_requests(&wrong.effects).is_empty());
+    assert!(by_id(&sim, &signs_id).retracted.is_none());
+    let held = &sim.state.rooms[&"launch".into()].messages;
+    assert!(held.iter().any(|m| m.id == signs.id), "the source stays");
+    let (ask, deferral) = sim.state.deferrals.iter().next().unwrap();
+    assert!(matches!(
+        &deferral.change,
+        DeferredChange::Memory {
+            change: MemoryChange::Correct { rest, .. }
+        } if rest == "Jo signs off now"
+    ));
+
+    // A lead's ✅ drops it as Sam's correction and reads what is right.
+    let ask = ask.clone();
+    sim.extracts(vec![draft("Jo", "signs off", "the print run")]);
+    let approved = sim.react("launch", &ask, "priya", CHECK);
+    assert_scrubbed(by_id(&sim, &signs_id));
+    let old = by_id(&sim, &signs_id).retracted.as_ref().unwrap();
+    assert_eq!(
+        (old.reason.as_str(), old.by.clone()),
+        ("corrected", Some("sam".into()))
+    );
+    assert_eq!(
+        redactions(&approved),
+        vec![(std::slice::from_ref(&signs.id), None)]
+    );
+    let request = extract_requests(&approved)[0];
+    assert_eq!(
+        (request.speaker.as_str(), request.text.as_str()),
+        ("Sam", "Jo signs off now")
+    );
+    assert_eq!(
+        messages(&approved),
+        vec![("Corrected: Jo signs off the print run.", Some(&wrong.id))]
+    );
+    assert!(
+        notices(&approved).contains(&"Memory: Asked by Sam, approved by Priya."),
+        "{:?}",
+        notices(&approved)
+    );
+    let jo = fact(&sim, "Jo signs off the print run");
+    assert_eq!(jo.sources[0].speaker, PlatformUserId::new("sam"));
+}
+
+#[test]
+fn a_member_remembering_someone_elses_words_waits_for_a_lead() {
+    let mut sim = work();
+    let marcus = sim.say("launch", "marcus", "the deadline moved to friday");
+    let asked = sim.reply("launch", "sam", "Q, remember that", &marcus.id);
+    assert_eq!(texts(&asked.effects), vec![DEFERRAL_REPLY]);
+    assert!(extract_requests(&asked.effects).is_empty());
+    let ask = sim.state.deferrals.keys().next().unwrap().clone();
+
+    sim.extracts(vec![draft("The deadline", "moved to", "friday")]);
+    let approved = sim.react("launch", &ask, "priya", CHECK);
+    let request = extract_requests(&approved)[0];
+    assert_eq!(
+        (request.speaker.as_str(), request.text.as_str()),
+        ("Marcus", "the deadline moved to friday")
+    );
+    assert_eq!(
+        messages(&approved),
+        vec![("Noted: The deadline moved to friday.", Some(&asked.id))]
+    );
+    let deadline = fact(&sim, "The deadline moved to friday");
+    assert_eq!((deadline.expires, deadline.confidence), (None, 0.9));
+    assert_eq!(deadline.sources[0].speaker, PlatformUserId::new("marcus"));
+
+    // Their own words need nobody.
+    let own = sim.say("launch", "sam", "the venue holds sixty");
+    sim.extracts(vec![draft("The venue", "holds", "sixty")]);
+    let kept = sim.reply("launch", "sam", "Q, remember that", &own.id);
+    assert_eq!(texts(&kept.effects), vec!["Noted: The venue holds sixty."]);
+
+    // On the agent's answer, keeping someone else's fact waits too.
+    let run = hear(
+        &mut sim,
+        "launch",
+        "marcus",
+        "the print run is 500 for now",
+        vec![perishable(draft("The print run", "is", "500"), None)],
+    );
+    sim.script(ModelScript::Reply(citing("500.", &[run.id.as_str()])));
+    sim.say("launch", "sam", "Q, how big is the print run?");
+    let answer = sim.last_sent_message().unwrap();
+    let keep = sim.reply("launch", "sam", "remember that", &answer);
+    assert_eq!(texts(&keep.effects), vec![DEFERRAL_REPLY]);
+    assert!(fact(&sim, "The print run is 500").expires.is_some());
+    let ask = sim
+        .state
+        .deferrals
+        .iter()
+        .find(|(_, d)| d.request == keep.id)
+        .map(|(k, _)| k.clone())
+        .unwrap();
+    let approved = sim.react("launch", &ask, "priya", CHECK);
+    assert_eq!(
+        texts(&approved),
+        vec!["Keeping that for good. Asked by Sam, approved by Priya."]
+    );
+    assert_eq!(fact(&sim, "The print run is 500").expires, None);
+
+    // Undo of it says why it stays, not that something was forgotten.
+    let undo = sim.say("launch", "priya", "Q, undo");
+    assert_eq!(
+        texts(&undo.effects),
+        vec!["That one can't be undone: say forget that or just for this week to change it."]
+    );
+}
+
+#[test]
+fn a_lone_thats_wrong_means_only_a_recent_or_the_latest_answer() {
+    let mut sim = friends();
+    let said = hear(
+        &mut sim,
+        "dinner",
+        "jo",
+        "sam drives",
+        vec![draft("Sam", "drives", "")],
+    );
+    let drives = id(&sim, "Sam drives");
+    sim.script(ModelScript::Reply(citing(
+        "Sam drives.",
+        &[said.id.as_str()],
+    )));
+    sim.say("dinner", "alex", "Q, does Sam drive?");
+
+    // Old, and the room has moved on: it asks which.
+    sim.advance(30 * 60);
+    sim.say("dinner", "priya", "anyway, pizza?");
+    let old = sim.say("dinner", "alex", "Q, that's wrong");
+    assert_eq!(texts(&old.effects), vec![WHICH_ONE]);
+    assert!(redactions(&old.effects).is_empty());
+    assert!(by_id(&sim, &drives).retracted.is_none());
+
+    // Old but still the latest in the room, it is what was meant.
+    sim.script(ModelScript::Reply(citing(
+        "Sam drives.",
+        &[said.id.as_str()],
+    )));
+    sim.say("dinner", "alex", "Q, so who drives?");
+    sim.advance(30 * 60);
+    let latest = sim.say("dinner", "alex", "Q, that's wrong");
+    assert_eq!(texts(&latest.effects), vec!["Dropped that."]);
+    assert!(by_id(&sim, &drives).retracted.is_some());
+}
+
+#[test]
+fn undo_of_just_for_this_week_says_nothing_was_forgotten() {
+    let mut sim = friends();
+    let said = hear(
+        &mut sim,
+        "dinner",
+        "alex",
+        "I'm off booze",
+        vec![self_draft("Alex", "is", "off booze", "I'm off booze")],
+    );
+    sim.reply("dinner", "alex", "Q, just for this week", &said.id);
+    let undo = sim.say("dinner", "alex", "Q, undo");
+    assert_eq!(
+        texts(&undo.effects),
+        vec!["That one can't be undone: say remember that to keep it for good."]
+    );
 }

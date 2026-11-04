@@ -84,6 +84,17 @@ pub fn resolve_role(state: &GroupState, room: &PlatformRoomId, user: &PlatformUs
     if state.rooms.get(room).is_some_and(|r| r.is_dm()) {
         return role_outside_dms(state, user);
     }
+    room_role(state, room, user, true)
+}
+
+/// The role in a room that is not a DM. A lead scoped to the room counts
+/// only when `scoped` is set.
+fn room_role(
+    state: &GroupState,
+    room: &PlatformRoomId,
+    user: &PlatformUserId,
+    scoped: bool,
+) -> Role {
     let Some(member) = state.rooms.get(room).and_then(|r| r.members.get(user)) else {
         return Role::Guest;
     };
@@ -91,7 +102,7 @@ pub fn resolve_role(state: &GroupState, room: &PlatformRoomId, user: &PlatformUs
         return Role::Guest;
     }
     let named = state.leads.contains(user);
-    let scoped = state.scoped_leads.iter().any(|s| s.leads_room(user, room));
+    let scoped = scoped && state.scoped_leads.iter().any(|s| s.leads_room(user, room));
     if named || scoped || state.profile.leads.admits(member.platform_role) {
         Role::Lead
     } else {
@@ -107,13 +118,14 @@ pub fn group_role(state: &GroupState, user: &PlatformUserId) -> Role {
     role_outside_dms(state, user)
 }
 
+/// A room scope leads only in its own room, so it never makes a DM a lead's.
 fn role_outside_dms(state: &GroupState, user: &PlatformUserId) -> Role {
     let mut external = false;
     let mut best = Role::Guest;
     for (id, room) in state.rooms.iter().filter(|(_, r)| !r.is_dm()) {
         if let Some(member) = room.members.get(user) {
             external |= member.platform_role == PlatformRole::External;
-            best = best.max(resolve_role(state, id, user));
+            best = best.max(room_role(state, id, user, false));
         }
     }
     if !external && state.leads.contains(user) {

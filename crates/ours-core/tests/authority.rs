@@ -2,6 +2,7 @@
 
 #![allow(clippy::unwrap_used, clippy::expect_used)]
 
+use ours_core::leads::DEFERRAL_REPLY;
 use ours_core::sim::{Sim, texts};
 use ours_core::{Command, GroupState, Input, Scope, ScopedLead, resolve_role};
 use ours_types::{Kind, PlatformRole, PlatformUserId, Role};
@@ -94,6 +95,45 @@ fn outsiders_and_hosts() {
     assert_eq!(
         resolve_role(&team.state, &"other".into(), &"regular".into()),
         Role::Guest
+    );
+}
+
+#[test]
+fn a_room_scope_leads_only_in_its_own_room_not_in_a_dm() {
+    let mut team = group(Kind::Team);
+    team.room(
+        "random",
+        "random",
+        &[("regular", "Rae", PlatformRole::Regular)],
+    );
+    team.state.scoped_leads.push(ScopedLead {
+        user: "regular".into(),
+        scope: Scope::Room {
+            room: "room".into(),
+        },
+        expires: None,
+    });
+    let dm = team.dm_room("regular");
+    assert_eq!(role(&team.state, "regular"), Role::Lead);
+    assert_eq!(
+        resolve_role(&team.state, &"random".into(), &"regular".into()),
+        Role::Member
+    );
+    assert_eq!(
+        resolve_role(&team.state, &dm, &"regular".into()),
+        Role::Member
+    );
+    let asked = team.dm("regular", "Q, legal hold on");
+    assert_eq!(texts(&asked.effects), vec![DEFERRAL_REPLY]);
+    assert!(!team.state.legal_hold);
+
+    // A named lead still leads from a DM.
+    team.feed(Input::Command(Command::AddLead {
+        user: "regular".into(),
+    }));
+    assert_eq!(
+        resolve_role(&team.state, &dm, &"regular".into()),
+        Role::Lead
     );
 }
 

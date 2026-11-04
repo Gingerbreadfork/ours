@@ -265,13 +265,16 @@ pub(crate) enum Stored {
 
 /// Stores a draft heard in `source`. A draft with the same subject,
 /// predicate and scope as a live fact reconfirms it when the object is the
-/// same and supersedes it otherwise. `text` is what was said, kept as the
-/// quote of a self-stated fact the extractor gave none for.
+/// same and supersedes it otherwise. A `weak` draft, from a sender nobody
+/// verified, is dropped rather than supersede a fact held more surely.
+/// `text` is what was said, kept as the quote of a self-stated fact the
+/// extractor gave none for.
 pub(crate) fn store(
     state: &mut GroupState,
     source: Source,
     text: &str,
     draft: FactDraft,
+    weak: bool,
     now: Instant,
 ) -> Option<Stored> {
     let subject = draft.subject.trim();
@@ -334,6 +337,13 @@ pub(crate) fn store(
         })
         .map(|f| f.id.clone())
         .collect();
+    let outranked = matching
+        .iter()
+        .filter_map(|id| state.facts.get(id))
+        .any(|f| f.confidence > confidence && !f.object.eq_ignore_ascii_case(&object));
+    if weak && outranked {
+        return None;
+    }
     let mut same = None;
     for id in matching {
         let Some(fact) = state.facts.get_mut(&id) else {

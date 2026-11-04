@@ -7,9 +7,12 @@
 use ours_core::leads::DEFERRAL_REPLY;
 use ours_core::sim::{ClassifierScript, Posted, Sim, draft, instant, notices, texts};
 use ours_core::{
-    Command, GroupState, Input, SettingChange, TimerPurpose, render_charter, retention_days,
+    ACTIONS_KEPT, ActionClass, ActionRecord, Command, GroupState, Input, SettingChange,
+    TimerPurpose, Undo, render_charter, retention_days,
 };
-use ours_types::{FactDraft, Instant, Kind, MessageKind, PlatformRole, Score, ScoreSource};
+use ours_types::{
+    ActionId, FactDraft, Instant, Kind, MessageKind, PlatformRole, Score, ScoreSource,
+};
 
 const DAY: i64 = 24 * 60 * 60;
 
@@ -211,6 +214,49 @@ fn legal_hold_keeps_everything_until_a_lead_lifts_it() {
             && notice.ends_with(" older than 365 days and 1 expired fact."),
         "{notice}"
     );
+}
+
+#[test]
+fn records_inside_the_retention_period_are_not_dropped_for_count() {
+    let mut sim = work();
+    for _ in 0..520 {
+        sim.say("launch", "sam", "Q, who do you listen to?");
+    }
+    let first = sim.state.actions.front().unwrap().id.clone();
+    assert!(sim.state.actions.len() > 500, "{}", sim.state.actions.len());
+    sim.say("launch", "sam", "Q, who do you listen to?");
+    assert_eq!(sim.state.actions.front().unwrap().id, first);
+}
+
+#[test]
+fn the_ceiling_never_bites_under_a_legal_hold_and_says_so_when_it_does() {
+    let mut sim = work();
+    sim.feed(Input::Command(Command::SetLegalHold { on: true }));
+    for i in 0..ACTIONS_KEPT + 5 {
+        sim.state.actions.push_back(ActionRecord::new(
+            ActionId::new(format!("old{i}")),
+            ActionClass::RoomMessage,
+            "launch".into(),
+            sim.now,
+            "my message \"hi\"",
+            Undo::None { why: "test".into() },
+        ));
+    }
+    let held = sim.advance(DAY);
+    assert_eq!(sim.state.actions.len(), ACTIONS_KEPT + 5);
+    assert!(notices(&held).is_empty(), "{held:?}");
+
+    let off = sim.feed(Input::Command(Command::SetLegalHold { on: false }));
+    assert_eq!(sim.state.actions.len(), ACTIONS_KEPT * 9 / 10);
+    assert_eq!(
+        sim.state.actions.front().unwrap().id,
+        ActionId::new(format!("old{}", ACTIONS_KEPT / 10 + 5))
+    );
+    let dropped = ACTIONS_KEPT / 10 + 5;
+    let line = format!(
+        "Retention: the action log passed {ACTIONS_KEPT} records, so the oldest {dropped} went before their 365 days were up."
+    );
+    assert!(notices(&off).contains(&line.as_str()), "{off:?}");
 }
 
 #[test]

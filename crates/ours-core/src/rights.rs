@@ -16,7 +16,9 @@ use crate::memory::{
 };
 use crate::reactions::{self, Meaning};
 use crate::settings::addressed_trigger;
-use crate::state::{DEFERRAL_TTL_SECONDS, Deferral, DeferredChange, GroupState};
+use crate::state::{
+    DEFERRAL_TTL_SECONDS, Deferral, DeferredChange, DmFollowUp, FollowUp, GroupState,
+};
 use crate::step::render_mentions;
 use crate::timers;
 use crate::trace::Trace;
@@ -39,23 +41,66 @@ pub const FORGET_ALL_LINE: &str = "Say forget me to clear all of it.";
 pub const CANT_SEE: &str = "I can't see that message any more.";
 pub const REMEMBER_WHAT: &str = "Say remember that and the fact, or reply to the message with it.";
 pub const KEPT_FOR_GOOD: &str = "Keeping that for good.";
+/// A lone "that's wrong" whose target is neither recent nor the latest.
+pub const WHICH_ONE: &str = "Reply to the message that's wrong and I'll drop what it used.";
 pub const WEEK_SECONDS: i64 = 7 * DAY_SECONDS;
+/// A lone "that's wrong" means the agent's last message only this soon after it.
+pub const LONE_CORRECTION_SECONDS: i64 = 10 * 60;
 /// Why a change to memory is not undone.
 pub const FORGOTTEN_NOTE: &str = "what is forgotten is gone; say remember that to keep it again";
+/// Why "just for this week" is not undone.
+pub const EXPIRY_NOTE: &str = "say remember that to keep it for good";
+/// Why "remember that" is not undone.
+pub const KEPT_NOTE: &str = "say forget that or just for this week to change it";
 
 /// A change to facts someone asked for, carried out at once or after a
 /// lead's ✅.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, JsonSchema)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum MemoryChange {
-    Forget { facts: Vec<FactId> },
-    Expire { facts: Vec<FactId>, at: Instant },
+    Forget {
+        facts: Vec<FactId>,
+    },
+    Expire {
+        facts: Vec<FactId>,
+        at: Instant,
+    },
+    /// Kept for good and as stated.
+    Keep {
+        facts: Vec<FactId>,
+    },
+    /// Retracted as corrected, with `rest` read as the right version.
+    Correct {
+        facts: Vec<FactId>,
+        #[serde(default)]
+        rest: String,
+        /// The message the correction answers.
+        #[serde(default)]
+        corrected: Option<PlatformMessageId>,
+    },
+    /// Someone else's message, read and kept for good.
+    Remember {
+        message: PlatformMessageId,
+    },
 }
 
 impl MemoryChange {
     fn facts(&self) -> &[FactId] {
         match self {
-            MemoryChange::Forget { facts } | MemoryChange::Expire { facts, .. } => facts,
+            MemoryChange::Forget { facts }
+            | MemoryChange::Expire { facts, .. }
+            | MemoryChange::Keep { facts }
+            | MemoryChange::Correct { facts, .. } => facts,
+            MemoryChange::Remember { .. } => &[],
+        }
+    }
+
+    /// Why the line reporting it cannot be undone.
+    pub fn note(&self) -> &'static str {
+        match self {
+            MemoryChange::Forget { .. } | MemoryChange::Correct { .. } => FORGOTTEN_NOTE,
+            MemoryChange::Expire { .. } => EXPIRY_NOTE,
+            MemoryChange::Keep { .. } | MemoryChange::Remember { .. } => KEPT_NOTE,
         }
     }
 }
@@ -217,7 +262,7 @@ pub(crate) fn forget_me(
         }
     }
     let n = memory::retract(state, &ids, FORGET_ME, Some(&user), now);
-    redact(state, fx, said, Some(user.clone()), &message.id);
+    redact(state, fx, said, Some(user.clone()), Some(&message.id));
     let (theirs, rest): (Vec<PendingExtract>, Vec<PendingExtract>) =
         std::mem::take(&mut state.extractions)
             .into_iter()
@@ -233,7 +278,7 @@ pub(crate) fn forget_me(
     }
     state.patterns.forget(&user);
     state.zones.remove(&user);
-    crate::tab::forget(state, &user);
+    crate::tab::forget(state, &user, now);
     crate::commitment::forget(state, &user, now, fx);
     let name = state.display_name(&message.room, &user);
     let trace = Trace::new(
@@ -263,6 +308,9 @@ pub(crate) fn forget_me(
 
 /// What a trace or record says once the words it quoted are forgotten.
 pub const FORGOTTEN_TRIGGER: &str = "a message since forgotten";
+/// Shorter words are matched only by message id; inside other text they
+/// cannot be told from ordinary words.
+const QUOTE_MIN_CHARS: usize = 16;
 
 /// Every message `user` wrote that a room's ring still holds, by room.
 fn held_from(
@@ -278,36 +326,79 @@ fn held_from(
         .collect()
 }
 
+/// Takes one message out of its room and asks the binary to scrub it from
+/// the journal, with any trace or record that quotes it.
+pub(crate) fn redact_message(
+    state: &mut GroupState,
+    fx: &mut Vec<Effect>,
+    room: &PlatformRoomId,
+    message: &PlatformMessageId,
+) {
+    redact(state, fx, vec![(room.clone(), message.clone())], None, None);
+}
+
 /// Asks the binary to scrub `messages`, and with `user` all their words,
 /// from the journal, and drops the same messages from the rings so the
 /// state matches what a replay of the scrubbed journal holds. The request
-/// itself stays in the ring so its reply still names who asked.
+/// in `keep` stays in the ring so its reply still names who asked.
 fn redact(
     state: &mut GroupState,
     fx: &mut Vec<Effect>,
     messages: Vec<(PlatformRoomId, PlatformMessageId)>,
     user: Option<PlatformUserId>,
-    request: &PlatformMessageId,
+    keep: Option<&PlatformMessageId>,
 ) {
     if messages.is_empty() && user.is_none() {
         return;
     }
-    // The words as a trace or an action record would quote them.
-    let quoted: Vec<String> = state
+    let gone: Vec<&Message> = state
         .rooms
         .iter()
         .flat_map(|(room_id, room)| room.messages.iter().map(move |m| (room_id, m)))
         .filter(|(room_id, m)| {
-            m.id != *request
+            Some(&m.id) != keep
                 && (user.as_ref() == Some(&m.author)
                     || messages.iter().any(|(r, id)| r == *room_id && id == &m.id))
         })
-        .map(|(_, m)| crate::trace::shorten(&m.text, 80))
+        .map(|(_, m)| m)
+        .collect();
+    let words: Vec<String> = gone
+        .iter()
+        .map(|m| m.text.trim().to_owned())
+        .filter(|t| t.chars().count() >= QUOTE_MIN_CHARS)
+        .collect();
+    // The words as a trace or an action record would quote them.
+    let quoted: Vec<String> = gone
+        .iter()
+        .map(|m| crate::trace::shorten(&m.text, 80))
         .filter(|s| !s.is_empty())
         .collect();
+    let spent = |request: &PlatformMessageId, by: &PlatformUserId, text: &str| {
+        messages.iter().any(|(_, id)| id == request)
+            || user.as_ref() == Some(by)
+            || words.iter().any(|w| text.contains(w.as_str()))
+    };
+    // A deferral that quotes the words would put them back when approved.
+    state
+        .deferrals
+        .retain(|_, d| !spent(&d.request, &d.asked_by, &d.request_text));
+    for pending in state.pending_actions.values_mut() {
+        if let Some(FollowUp::OpenDeferral { deferral: d }) = &pending.then
+            && spent(&d.request, &d.asked_by, &d.request_text)
+        {
+            pending.then = None;
+        }
+    }
+    for pending in state.pending_dms.values_mut() {
+        if let Some(DmFollowUp::Request { deferral: d }) = &pending.then
+            && spent(&d.request, &d.asked_by, &d.request_text)
+        {
+            pending.then = None;
+        }
+    }
     for (room_id, room) in &mut state.rooms {
         room.messages.retain(|m| {
-            &m.id == request || !messages.iter().any(|(r, id)| r == room_id && id == &m.id)
+            Some(&m.id) == keep || !messages.iter().any(|(r, id)| r == room_id && id == &m.id)
         });
         for (_, trace) in &mut room.traces {
             if quoted.iter().any(|q| trace.trigger.contains(q.as_str())) {
@@ -424,17 +515,19 @@ fn act(
     fx: &mut Vec<Effect>,
 ) {
     let room = &message.room;
-    let trigger = addressed_trigger(state, message);
     match disposition(state, change.facts(), &message.author, role) {
         Disposition::Do => {
-            let line = apply(state, &change, &message.author, &message.id, now, fx);
+            let Some(line) = apply(state, &change, room, &message.author, &message.id, now, fx)
+            else {
+                return;
+            };
             let trace = Trace::new(
-                trigger,
+                addressed_trigger(state, message),
                 "anyone may change their own facts; a lead anyone's",
                 now,
             );
             let note = Recording::Note {
-                why: FORGOTTEN_NOTE.to_owned(),
+                why: change.note().to_owned(),
             };
             send_as(
                 state,
@@ -452,45 +545,64 @@ fn act(
                 count(change.facts().len())
             )));
         }
-        Disposition::Defer => {
-            let deferral = Deferral {
-                room: room.clone(),
-                asked_by: message.author.clone(),
-                request: message.id.clone(),
-                request_text: message.text.clone(),
-                change: DeferredChange::Memory { change },
-                expires: now.plus_seconds(DEFERRAL_TTL_SECONDS),
-            };
-            let trace = Trace::new(
-                trigger,
-                "a change to someone else's facts waits for a lead's ✅",
-                now,
-            );
-            leads::open_deferral(state, fx, deferral, now, trace);
-        }
-        Disposition::Decline => {
-            let line = decline_line(state, room);
-            let trace = Trace::new(trigger, "guests may change only their own facts", now);
-            send(state, fx, room, line, Some(message.id.clone()), now, trace);
-        }
+        Disposition::Defer => defer(state, message, change, now, fx),
+        Disposition::Decline => decline(state, message, now, fx),
     }
 }
 
+/// Replies "Needs a lead's ✅" and waits for one to approve the change.
+fn defer(
+    state: &mut GroupState,
+    message: &Message,
+    change: MemoryChange,
+    now: Instant,
+    fx: &mut Vec<Effect>,
+) {
+    let deferral = Deferral {
+        room: message.room.clone(),
+        asked_by: message.author.clone(),
+        request: message.id.clone(),
+        request_text: message.text.clone(),
+        change: DeferredChange::Memory { change },
+        expires: now.plus_seconds(DEFERRAL_TTL_SECONDS),
+    };
+    let trace = Trace::new(
+        addressed_trigger(state, message),
+        "a change to someone else's facts waits for a lead's ✅",
+        now,
+    );
+    leads::open_deferral(state, fx, deferral, now, trace);
+}
+
+fn decline(state: &mut GroupState, message: &Message, now: Instant, fx: &mut Vec<Effect>) {
+    let line = decline_line(state, &message.room);
+    say(
+        state,
+        message,
+        &line,
+        "guests may change only their own facts",
+        now,
+        fx,
+    );
+}
+
 /// Applies a change asked for in `request` and returns the one line that
-/// says so. A forget also scrubs the messages the facts came from.
+/// says so, or none when the extractor will answer instead. A forget or a
+/// correction also scrubs the messages the facts came from.
 pub(crate) fn apply(
     state: &mut GroupState,
     change: &MemoryChange,
+    room: &PlatformRoomId,
     by: &PlatformUserId,
     request: &PlatformMessageId,
     now: Instant,
     fx: &mut Vec<Effect>,
-) -> String {
-    match change {
+) -> Option<String> {
+    let line = match change {
         MemoryChange::Forget { facts } => {
             let sources = memory::source_messages(state, facts);
             memory::retract(state, facts, FORGET_THAT, Some(by), now);
-            redact(state, fx, sources, None, request);
+            redact(state, fx, sources, None, Some(request));
             FORGOT_THAT.to_owned()
         }
         MemoryChange::Expire { facts, at } => {
@@ -506,7 +618,51 @@ pub(crate) fn apply(
                 zone::local(*at, &state.timezone).strftime("%A %Y-%m-%d")
             )
         }
-    }
+        MemoryChange::Keep { facts } => {
+            for id in facts {
+                if let Some(fact) = state.facts.get_mut(id)
+                    && fact.retracted.is_none()
+                {
+                    fact.expires = None;
+                    fact.confidence = fact.confidence.max(STATED);
+                }
+            }
+            KEPT_FOR_GOOD.to_owned()
+        }
+        MemoryChange::Correct {
+            facts,
+            rest,
+            corrected,
+        } => {
+            let asked = Correction {
+                room,
+                request,
+                by,
+                rest,
+                corrected: corrected.as_ref(),
+            };
+            let (dropped, waiting) = correct(state, fx, asked, facts, now);
+            if waiting {
+                return None;
+            }
+            if dropped > 0 { DROPPED } else { NOTHING_CITED }.to_owned()
+        }
+        MemoryChange::Remember { message } => {
+            let source = state
+                .rooms
+                .get(room)
+                .and_then(|r| r.messages.iter().find(|m| &m.id == message))
+                .cloned();
+            let Some(source) = source else {
+                return Some(CANT_SEE.to_owned());
+            };
+            let context = context_lines(state, &source, EXTRACT_CONTEXT);
+            let pending = remember(&source, request, &source.text, now);
+            extract::ask(state, fx, pending, context, now);
+            return None;
+        }
+    };
+    Some(line)
 }
 
 /// "that's wrong": the facts the agent's message cited are retracted as
@@ -521,46 +677,60 @@ pub(crate) fn thats_wrong(
     now: Instant,
     fx: &mut Vec<Effect>,
 ) -> bool {
+    let last = state
+        .rooms
+        .get(&message.room)
+        .and_then(|r| r.traces.back())
+        .map(|(id, t)| (id.clone(), t.clone()));
     let corrected = match &message.reply_to {
         Some(parent) => Some(parent.clone()),
-        None => state
-            .rooms
-            .get(&message.room)
-            .and_then(|r| r.traces.back())
-            .map(|(id, _)| id.clone()),
+        None => last.as_ref().map(|(id, _)| id.clone()),
     };
     let facts = match target(state, message) {
         Target::Own(facts) | Target::Message(facts) => facts,
-        Target::Alone => state
-            .rooms
-            .get(&message.room)
-            .and_then(|r| r.last_trace())
-            .map(|t| unretracted(state, t.facts.clone()))
-            .unwrap_or_default(),
+        Target::Alone => match last {
+            Some((id, trace)) if lone_target(state, message, &id, &trace, now) => {
+                unretracted(state, trace.facts)
+            }
+            Some(_) => {
+                say(
+                    state,
+                    message,
+                    WHICH_ONE,
+                    "a lone \"that's wrong\" means only a recent or the latest message",
+                    now,
+                    fx,
+                );
+                return false;
+            }
+            None => Vec::new(),
+        },
     };
-    if role == Role::Guest && disposition(state, &facts, &message.author, role) != Disposition::Do {
-        let line = decline_line(state, &message.room);
-        say(
-            state,
-            message,
-            &line,
-            "guests may correct only their own facts",
-            now,
-            fx,
-        );
-        return false;
+    match disposition(state, &facts, &message.author, role) {
+        Disposition::Do => {}
+        Disposition::Defer => {
+            let change = MemoryChange::Correct {
+                facts,
+                rest: rest.trim().to_owned(),
+                corrected,
+            };
+            defer(state, message, change, now, fx);
+            return false;
+        }
+        Disposition::Decline => {
+            decline(state, message, now, fx);
+            return false;
+        }
     }
-    let sources = memory::source_messages(state, &facts);
-    let dropped = memory::retract(state, &facts, CORRECTED, Some(&message.author), now);
-    redact(state, fx, sources, None, &message.id);
-    if dropped > 0 {
-        let by = state.display_name(&message.room, &message.author);
-        fx.push(Effect::Notice(format!(
-            "Memory: {by} corrected {}.",
-            count(dropped)
-        )));
-    }
-    if rest.trim().is_empty() {
+    let asked = Correction {
+        room: &message.room,
+        request: &message.id,
+        by: &message.author,
+        rest,
+        corrected: corrected.as_ref(),
+    };
+    let (dropped, waiting) = correct(state, fx, asked, &facts, now);
+    if !waiting {
         let line = if dropped > 0 { DROPPED } else { NOTHING_CITED };
         say(
             state,
@@ -570,36 +740,108 @@ pub(crate) fn thats_wrong(
             now,
             fx,
         );
-        return false;
     }
-    let mut context = context_lines(state, message, EXTRACT_CONTEXT);
+    waiting
+}
+
+/// Whether the agent's last traced message in the room is what a lone
+/// "that's wrong" means: sent recently, or the latest message there.
+fn lone_target(
+    state: &GroupState,
+    message: &Message,
+    id: &PlatformMessageId,
+    trace: &Trace,
+    now: Instant,
+) -> bool {
+    if now.seconds_since(trace.at) <= LONE_CORRECTION_SECONDS {
+        return true;
+    }
+    state.rooms.get(&message.room).is_some_and(|r| {
+        r.messages
+            .iter()
+            .rev()
+            .find(|m| m.id != message.id)
+            .is_some_and(|m| &m.id == id)
+    })
+}
+
+/// Who asked for a correction, where, and what they said was right.
+struct Correction<'a> {
+    room: &'a PlatformRoomId,
+    request: &'a PlatformMessageId,
+    by: &'a PlatformUserId,
+    rest: &'a str,
+    corrected: Option<&'a PlatformMessageId>,
+}
+
+/// Retracts `facts` as corrected and scrubs their sources, then asks the
+/// extractor for the right version when one was said. Returns how many
+/// facts were dropped and whether a reply waits on the extractor.
+fn correct(
+    state: &mut GroupState,
+    fx: &mut Vec<Effect>,
+    asked: Correction,
+    facts: &[FactId],
+    now: Instant,
+) -> (usize, bool) {
+    let Correction {
+        room,
+        request,
+        by,
+        rest,
+        corrected,
+    } = asked;
+    let sources = memory::source_messages(state, facts);
+    let dropped = memory::retract(state, facts, CORRECTED, Some(by), now);
+    redact(state, fx, sources, None, Some(request));
+    if dropped > 0 {
+        let name = state.display_name(room, by);
+        fx.push(Effect::Notice(format!(
+            "Memory: {name} corrected {}.",
+            count(dropped)
+        )));
+    }
+    let rest = rest.trim();
+    if rest.is_empty() {
+        return (dropped, false);
+    }
+    let held = state
+        .rooms
+        .get(room)
+        .and_then(|r| r.messages.iter().find(|m| &m.id == request))
+        .cloned();
+    let at = held.as_ref().map_or(now, |m| m.at);
+    let mut context = match &held {
+        Some(m) => context_lines(state, m, EXTRACT_CONTEXT),
+        None => Vec::new(),
+    };
     if let Some(parent) = corrected
-        && let Some(held) = state
+        && let Some(parent) = state
             .rooms
-            .get(&message.room)
-            .and_then(|r| r.messages.iter().find(|m| m.id == parent))
-        && !context.iter().any(|l| l.text == held.text)
+            .get(room)
+            .and_then(|r| r.messages.iter().find(|m| &m.id == parent))
+        && !context.iter().any(|l| l.text == parent.text)
     {
         if context.len() >= EXTRACT_CONTEXT {
             context.remove(0);
         }
-        context.push(line_of(state, message, held));
+        context.push(line_of(state, room, at, parent));
     }
     let pending = PendingExtract {
-        room: message.room.clone(),
-        message: message.id.clone(),
-        speaker: message.author.clone(),
-        at: message.at,
-        text: rest.trim().to_owned(),
+        room: room.clone(),
+        message: request.clone(),
+        speaker: by.clone(),
+        at,
+        text: rest.to_owned(),
         why: ExtractWhy::Correction {
             dropped: u32::try_from(dropped).unwrap_or(u32::MAX),
         },
-        reply_to: Some(message.id.clone()),
+        reply_to: Some(request.clone()),
         guard: None,
         asked_at: now,
     };
     extract::ask(state, fx, pending, context, now);
-    true
+    (dropped, true)
 }
 
 /// "remember that": what follows, the message replied to, or alone the
@@ -617,7 +859,7 @@ pub(crate) fn remember_that(
     let rest = rest.trim();
     if !rest.is_empty() {
         let context = context_lines(state, message, EXTRACT_CONTEXT);
-        let pending = remember(message, message, rest, now);
+        let pending = remember(message, &message.id, rest, now);
         extract::ask(state, fx, pending, context, now);
         return true;
     }
@@ -638,34 +880,7 @@ pub(crate) fn remember_that(
                 );
                 return false;
             }
-            if role == Role::Guest
-                && disposition(state, &facts, &message.author, role) != Disposition::Do
-            {
-                let line = decline_line(state, &message.room);
-                say(
-                    state,
-                    message,
-                    &line,
-                    "guests may change only their own facts",
-                    now,
-                    fx,
-                );
-                return false;
-            }
-            for id in &facts {
-                if let Some(fact) = state.facts.get_mut(id) {
-                    fact.expires = None;
-                    fact.confidence = fact.confidence.max(STATED);
-                }
-            }
-            say(
-                state,
-                message,
-                KEPT_FOR_GOOD,
-                "\"remember that\" keeps the fact for good",
-                now,
-                fx,
-            );
+            act(state, message, role, MemoryChange::Keep { facts }, now, fx);
             return false;
         }
         Some(parent) => room.and_then(|r| r.messages.iter().find(|m| &m.id == parent)),
@@ -694,26 +909,33 @@ pub(crate) fn remember_that(
         );
         return false;
     };
-    if role == Role::Guest && source.author != message.author {
-        let line = decline_line(state, &message.room);
-        say(
-            state,
-            message,
-            &line,
-            "guests may change only their own facts",
-            now,
-            fx,
-        );
-        return false;
+    if source.author != message.author {
+        match dispose(role, ActionKind::ChangeMemory) {
+            Disposition::Do => {}
+            Disposition::Defer => {
+                let change = MemoryChange::Remember { message: source.id };
+                defer(state, message, change, now, fx);
+                return false;
+            }
+            Disposition::Decline => {
+                decline(state, message, now, fx);
+                return false;
+            }
+        }
     }
     let context = context_lines(state, &source, EXTRACT_CONTEXT);
-    let pending = remember(&source, message, &source.text, now);
+    let pending = remember(&source, &message.id, &source.text, now);
     extract::ask(state, fx, pending, context, now);
     true
 }
 
 /// An extraction of `text` from `source`, answered under `asked`.
-fn remember(source: &Message, asked: &Message, text: &str, now: Instant) -> PendingExtract {
+fn remember(
+    source: &Message,
+    asked: &PlatformMessageId,
+    text: &str,
+    now: Instant,
+) -> PendingExtract {
     PendingExtract {
         room: source.room.clone(),
         message: source.id.clone(),
@@ -721,14 +943,14 @@ fn remember(source: &Message, asked: &Message, text: &str, now: Instant) -> Pend
         at: source.at,
         text: text.to_owned(),
         why: ExtractWhy::Remember,
-        reply_to: Some(asked.id.clone()),
+        reply_to: Some(asked.clone()),
         guard: None,
         asked_at: now,
     }
 }
 
-fn line_of(state: &GroupState, message: &Message, held: &Message) -> ContextLine {
-    let room = &message.room;
+/// `held` as a line of context for something said at `at` in `room`.
+fn line_of(state: &GroupState, room: &PlatformRoomId, at: Instant, held: &Message) -> ContextLine {
     let own =
         state.is_me(&held.author) || state.rooms.get(room).is_some_and(|r| r.is_own(&held.id));
     ContextLine {
@@ -738,7 +960,7 @@ fn line_of(state: &GroupState, message: &Message, held: &Message) -> ContextLine
             state.display_name(room, &held.author)
         },
         text: render_mentions(state, room, &held.text),
-        seconds_before: message.at.seconds_since(held.at).max(0),
+        seconds_before: at.seconds_since(held.at).max(0),
     }
 }
 

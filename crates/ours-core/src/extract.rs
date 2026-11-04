@@ -201,6 +201,7 @@ pub(crate) fn on_extracted(
     let mut lines: Vec<String> = Vec::new();
     let mut kept = 0;
     let mut new: Vec<FactId> = Vec::new();
+    let weak = pending.why == ExtractWhy::Mail { verified: false };
     for mut draft in drafts.into_iter().take(DRAFTS_KEPT) {
         if pending.why == ExtractWhy::Remember {
             draft.durable = true;
@@ -220,7 +221,7 @@ pub(crate) fn on_extracted(
             speaker: pending.speaker.clone(),
             at: pending.at,
         };
-        let (id, verb) = match memory::store(state, source, &pending.text, draft, now) {
+        let (id, verb) = match memory::store(state, source, &pending.text, draft, weak, now) {
             Some(Stored::New(id)) => (id, "remembered"),
             Some(Stored::Reconfirmed(id)) => (id, "reconfirmed"),
             None => continue,

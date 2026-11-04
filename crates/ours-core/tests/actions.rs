@@ -508,6 +508,85 @@ fn a_venues_reply_is_relayed_to_the_room_that_asked_and_kept() {
 }
 
 #[test]
+fn mail_delivered_twice_is_read_once() {
+    let mut sim = work();
+    ask_for_booking(&mut sim);
+    sim.advance(600);
+    let reply = inbound_mail(
+        VENUE,
+        Some("Bai Tong"),
+        "Re: Table for five, Thursday 7:30",
+        "Table for five confirmed at 7:30.",
+        &["<ref1@sim>"],
+        sim.now,
+    );
+    let first = sim.mail(reply.clone());
+    assert_eq!(texts(&first).len(), 1);
+    assert_eq!(extract_requests(&first).len(), 1);
+    let again = sim.mail(reply);
+    assert!(texts(&again).is_empty(), "{again:?}");
+    assert!(extract_requests(&again).is_empty());
+    assert!(notices(&again).is_empty());
+}
+
+#[test]
+fn an_unverified_reply_never_overwrites_a_fact_held_more_surely() {
+    let mut sim = work();
+    ask_for_booking(&mut sim);
+    sim.advance(600);
+    sim.extracts(vec![draft("Bai Tong", "closes at", "11pm")]);
+    sim.say("launch", "jo", "Q, remember that Bai Tong closes at 11pm");
+    let line = |f: &ours_core::Fact| f.line();
+    let stated = sim
+        .state
+        .facts
+        .values()
+        .find(|f| line(f) == "Bai Tong closes at 11pm")
+        .map(|f| f.id.clone())
+        .unwrap();
+
+    let mut spoof = inbound_mail(
+        VENUE,
+        Some("Bai Tong"),
+        "Re: Table for five, Thursday 7:30",
+        "We close at 9pm.",
+        &["<ref1@sim>"],
+        sim.now,
+    );
+    spoof.authenticated = false;
+    sim.extracts(vec![draft("Bai Tong", "closes at", "9pm")]);
+    let fx = sim.mail(spoof);
+    assert_eq!(extract_requests(&fx).len(), 1);
+    assert!(sim.state.facts[&stated].retracted.is_none());
+    assert!(
+        !sim.state
+            .facts
+            .values()
+            .any(|f| line(f) == "Bai Tong closes at 9pm")
+    );
+
+    // A verified sender may correct it.
+    sim.advance(60);
+    sim.extracts(vec![draft("Bai Tong", "closes at", "10pm")]);
+    sim.mail(inbound_mail(
+        VENUE,
+        Some("Bai Tong"),
+        "Re: Table for five, Thursday 7:30",
+        "Sorry, we close at 10pm.",
+        &["<ref1@sim>"],
+        sim.now,
+    ));
+    let old = sim.state.facts[&stated].retracted.as_ref().unwrap();
+    assert_eq!(old.reason, "superseded");
+    assert!(
+        sim.state
+            .facts
+            .values()
+            .any(|f| f.retracted.is_none() && line(f) == "Bai Tong closes at 10pm")
+    );
+}
+
+#[test]
 fn the_same_domain_and_subject_is_not_a_reply() {
     let mut sim = work();
     ask_for_booking(&mut sim);

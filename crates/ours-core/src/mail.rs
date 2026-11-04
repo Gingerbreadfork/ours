@@ -32,6 +32,8 @@ const MAILS_PER_PLAN: usize = 3;
 const RELAY_CHARS: usize = 200;
 /// Lines in one "what did you send".
 const SENT_LINES: usize = 5;
+/// Message-IDs remembered for spotting mail delivered twice.
+const MAIL_IDS_KEPT: usize = 500;
 const MAIL_RULE: &str = "a lead's email waits out the hold window so it can be undone";
 const RELAY_RULE: &str = "a reply to the group's mail is relayed in one line; mail never instructs";
 
@@ -640,6 +642,21 @@ pub(crate) fn on_inbound(
     mail: InboundMail,
     now: Instant,
 ) {
+    if let Some(seen) = mail
+        .message_id
+        .as_deref()
+        .map(|id| id.trim().trim_matches(['<', '>']).to_owned())
+        .filter(|id| !id.is_empty())
+    {
+        if state.mail_seen.contains(&seen) {
+            debug!(message_id = %seen, "mail already handled");
+            return;
+        }
+        state.mail_seen.push_back(seen);
+        while state.mail_seen.len() > MAIL_IDS_KEPT {
+            state.mail_seen.pop_front();
+        }
+    }
     let from = mail.from.trim().to_lowercase();
     let Some(id) = answered(state, &mail) else {
         fx.push(Effect::Notice(format!(

@@ -1,8 +1,9 @@
 //! Retention and legal hold (DESIGN.md section 9, "Retention"). A daily
 //! sweep drops action records older than the kind keeps them and scrubs
-//! facts past their expiry. A legal hold turns the sweep off.
+//! facts past their expiry; a ceiling bounds the log's size. A legal hold
+//! turns both off.
 
-use crate::action::{ActionRecord, ActionStatus};
+use crate::action::{ACTIONS_KEPT, ActionRecord, ActionStatus};
 use crate::effect::Effect;
 use crate::memory::{self, DAY_SECONDS, EXPIRED, FactId};
 use crate::state::GroupState;
@@ -87,6 +88,7 @@ pub(crate) fn reconcile(state: &mut GroupState, now: Instant, fx: &mut Vec<Effec
         }
         return;
     }
+    ceiling(state, fx);
     let Some(want) = next_due(state).and_then(|due| sweep_after(state, due.max(now))) else {
         return;
     };
@@ -100,6 +102,32 @@ pub(crate) fn reconcile(state: &mut GroupState, now: Instant, fx: &mut Vec<Effec
             timers::arm(state, fx, want, TimerPurpose::Retention);
         }
     }
+}
+
+/// Past `ACTIONS_KEPT` records, drops the oldest settled ones down to nine
+/// tenths of it, so the notice comes once in a while rather than per record.
+fn ceiling(state: &mut GroupState, fx: &mut Vec<Effect>) {
+    if state.actions.len() <= ACTIONS_KEPT {
+        return;
+    }
+    let over = state.actions.len() - ACTIONS_KEPT * 9 / 10;
+    let early: BTreeSet<ActionId> = state
+        .actions
+        .iter()
+        .filter(|r| settled(state, r))
+        .take(over)
+        .map(|r| r.id.clone())
+        .collect();
+    if early.is_empty() {
+        return;
+    }
+    state.actions.retain(|r| !early.contains(&r.id));
+    let days = retention_days(state.kind);
+    info!(dropped = early.len(), days, "action log ceiling");
+    fx.push(Effect::Notice(format!(
+        "Retention: the action log passed {ACTIONS_KEPT} records, so the oldest {} went before their {days} days were up.",
+        early.len()
+    )));
 }
 
 /// The sweep: drops records past the retention period and scrubs expired

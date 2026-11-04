@@ -180,6 +180,10 @@ pub struct GroupState {
     /// When the legal hold was turned on.
     #[serde(default)]
     pub legal_hold_since: Option<Instant>,
+    /// Message-IDs of the mail last handled, oldest first, so mail
+    /// delivered twice is read once.
+    #[serde(default)]
+    pub mail_seen: VecDeque<String>,
 }
 
 /// The tab's currency until the host sets one.
@@ -461,6 +465,7 @@ impl GroupState {
             holds: BTreeMap::new(),
             legal_hold: false,
             legal_hold_since: None,
+            mail_seen: VecDeque::new(),
         }
     }
 

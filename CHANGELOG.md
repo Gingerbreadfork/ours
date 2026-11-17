@@ -1,5 +1,32 @@
 # Changelog
 
+## Unreleased
+
+### Fixed
+
+- `forget that` about a message the agent is still reading now stops the
+  read and scrubs the message, so nothing from it is kept. Before, it
+  answered "I kept nothing from that" and kept the fact a moment later.
+  Said on its own it means that unread message, not an older fact. Only
+  the message's author or a lead can stop someone else's read.
+- A message taken out of memory for any reason, such as a card number
+  edited into it, is no longer read for facts afterwards.
+- Forgetting a message scrubs only that message from the journal. On
+  Telegram, where message numbers repeat between chats, a message with the
+  same number in another room could be scrubbed with it.
+- An extractor or time answer that arrives after its message was forgotten
+  is journaled empty.
+- `daily_cap_usd` can take effect: the new `[model.pricing]` and
+  `[classifier.pricing]` tables say what a call costs. Before, no price
+  could be set, every call counted as free and the cap never stopped one.
+  `ours check` and every start warn when a hosted endpoint has no pricing.
+- A group that stops on an error, or cannot restart after a wipe, now
+  stops the process with a failing exit code, as a lost connector does,
+  instead of leaving that group unheard while the rest runs on.
+- Mail read by Microsoft servers that stamp `dmarc=bestguesspass` counts as
+  verified when DKIM or SPF aligns with the sender, as with `dmarc=none`.
+- The compliance page says "Legal hold turns off expiry."
+
 ## 0.0.1
 
 First release. Linux x86_64 and aarch64.

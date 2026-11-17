@@ -58,8 +58,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     );
 
     let (shutdown_tx, shutdown_rx) = watch::channel(false);
-    // Set when a connector gives up, so the exit code tells a supervisor to restart.
-    let connector_died = Arc::new(std::sync::atomic::AtomicBool::new(false));
+    // Set when a connector or a group gives up, so the exit code tells a
+    // supervisor to restart.
+    let gave_up = Arc::new(std::sync::atomic::AtomicBool::new(false));
 
     // Where members reach the admin server for calendar feeds: the host's
     // public URL when set, otherwise the LAN address the page prints.
@@ -69,8 +70,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     });
 
     // Connectors: one task each, one outbound queue each, one inbound queue each.
-    // A connector that gives up stops the whole process, loudly, rather than
-    // leaving an agent that can never hear anything.
+    // A connector or a group that gives up stops the whole process, loudly,
+    // rather than leaving an agent that can never hear anything.
     let mut outbound: HashMap<Platform, mpsc::Sender<Outbound>> = HashMap::new();
     let mut inbound: Vec<(Platform, mpsc::Receiver<InboundEvent>)> = Vec::new();
     let mut tasks = Vec::new();
@@ -114,13 +115,13 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         let (in_tx, in_rx) = mpsc::channel(1024);
         let platform = section.platform;
         let trip = shutdown_tx.clone();
-        let died = Arc::clone(&connector_died);
+        let gave_up = Arc::clone(&gave_up);
         tasks.push(tokio::spawn(async move {
             match connector.run(in_tx, out_rx).await {
                 Ok(()) => tracing::warn!(?platform, "connector finished"),
                 Err(error) => tracing::error!(?platform, %error, "connector stopped"),
             }
-            died.store(true, std::sync::atomic::Ordering::SeqCst);
+            gave_up.store(true, std::sync::atomic::Ordering::SeqCst);
             let _ = trip.send(true);
         }));
         outbound.insert(platform, out_tx);
@@ -219,12 +220,14 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         let hub = hub.clone();
         let data_dir = config.host.data_dir.clone();
         let public_base = public_base.clone();
+        let trip = shutdown_tx.clone();
+        let gave_up = Arc::clone(&gave_up);
         groups.push(tokio::spawn(async move {
             let mut runner = runner;
             let mut desired = desired;
-            loop {
+            let failed = loop {
                 match runner.run(shutdown.clone()).await {
-                    Ok(RunEnd::Shutdown) => break,
+                    Ok(RunEnd::Shutdown) => break false,
                     Ok(RunEnd::Wiped { inputs, wipes, mail, done }) => {
                         // The runner is gone, and with it every handle on the file.
                         let journal = match start_over(&store, &hub, &data_dir, &id, &public_base, &mut desired) {
@@ -232,7 +235,7 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                             Err(error) => {
                                 tracing::error!(group = %id, %error, "wipe failed; the group is down");
                                 let _ = done.send(Err(error));
-                                break;
+                                break true;
                             }
                         };
                         match GroupRunner::recover(id.clone(), desired.clone(), again.wiring(journal, inputs, wipes, mail)).await {
@@ -244,15 +247,19 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
                             Err(error) => {
                                 tracing::error!(group = %id, %error, "could not start the wiped group");
                                 let _ = done.send(Err(error.to_string()));
-                                break;
+                                break true;
                             }
                         }
                     }
                     Err(error) => {
                         tracing::error!(group = %id, %error, "group stopped");
-                        break;
+                        break true;
                     }
                 }
+            };
+            if failed {
+                gave_up.store(true, std::sync::atomic::Ordering::SeqCst);
+                let _ = trip.send(true);
             }
         }));
     }
@@ -343,12 +350,12 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
     tokio::select! {
         _ = tokio::signal::ctrl_c() => tracing::info!("stopping"),
         _ = terminate.recv() => tracing::info!("stopping on SIGTERM"),
-        _ = tripped.changed() => tracing::error!("stopping because a connector stopped"),
+        _ = tripped.changed() => tracing::error!("stopping because a connector or a group stopped"),
     }
     let _ = shutdown_tx.send(true);
     stop(groups, tasks, SHUTDOWN_GRACE).await;
-    if connector_died.load(std::sync::atomic::Ordering::SeqCst) {
-        anyhow::bail!("a connector stopped; exiting so a supervisor restarts the agent");
+    if gave_up.load(std::sync::atomic::Ordering::SeqCst) {
+        anyhow::bail!("a connector or a group stopped; exiting so a supervisor restarts the agent");
     }
     Ok(())
 }

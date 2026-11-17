@@ -1133,7 +1133,7 @@ pub fn redactions(effects: &[Effect]) -> Vec<(&[PlatformMessageId], Option<&Plat
     effects
         .iter()
         .filter_map(|e| match e {
-            Effect::Redact { messages, user } => Some((messages.as_slice(), user.as_ref())),
+            Effect::Redact { messages, user, .. } => Some((messages.as_slice(), user.as_ref())),
             _ => None,
         })
         .collect()

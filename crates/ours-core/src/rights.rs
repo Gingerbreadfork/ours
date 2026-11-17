@@ -417,14 +417,16 @@ fn redact(
             record.outcome = Some(FORGOTTEN_TRIGGER.to_owned());
         }
     }
-    let mut ids: Vec<PlatformMessageId> = Vec::new();
-    for (_, id) in messages {
-        if !ids.contains(&id) {
-            ids.push(id);
+    let mut unique: Vec<(PlatformRoomId, PlatformMessageId)> = Vec::new();
+    for source in messages {
+        if !unique.contains(&source) {
+            unique.push(source);
         }
     }
+    let (rooms, messages) = unique.into_iter().unzip();
     fx.push(Effect::Redact {
-        messages: ids,
+        messages,
+        rooms,
         user,
     });
 }

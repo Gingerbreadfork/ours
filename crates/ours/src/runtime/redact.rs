@@ -12,13 +12,17 @@ pub const FORGOTTEN: &str = "[forgotten]";
 /// them elsewhere cannot be told from ordinary words.
 const QUOTE_MIN_CHARS: usize = 16;
 
-/// Rewrites every logged message whose id is in `messages` or whose author
-/// is `user`, then every other record that quotes those words (the
-/// extractor's drafts, the model's plans), drops the snapshots that might
-/// still hold them, and returns how many records changed.
+/// A message to scrub: its room and its id. An id alone is not enough,
+/// because some platforms number messages per room.
+pub type Target = (String, String);
+
+/// Rewrites every logged message in `messages` or whose author is `user`,
+/// then every other record that quotes those words (the extractor's
+/// drafts, the model's plans), drops the snapshots that might still hold
+/// them, and returns how many records changed.
 pub fn redact_journal(
     journal: &Journal<Input, GroupState>,
-    messages: &BTreeSet<String>,
+    messages: &BTreeSet<Target>,
     user: Option<&str>,
 ) -> Result<u64, JournalError> {
     // First pass: find the words before they go.
@@ -44,22 +48,22 @@ pub fn redact_journal(
 
 fn is_target(
     object: &serde_json::Map<String, serde_json::Value>,
-    messages: &BTreeSet<String>,
+    messages: &BTreeSet<Target>,
     user: Option<&str>,
 ) -> bool {
-    let id = object.get("id").and_then(|v| v.as_str());
-    let author = object.get("author").and_then(|v| v.as_str());
-    object
-        .get("text")
-        .and_then(|t| t.as_str())
-        .is_some_and(|t| t != FORGOTTEN)
-        && (id.is_some_and(|i| messages.contains(i)) || (author.is_some() && author == user))
+    let field = |name: &str| object.get(name).and_then(|v| v.as_str());
+    let named = match (field("room"), field("id")) {
+        (Some(room), Some(id)) => messages.contains(&(room.to_owned(), id.to_owned())),
+        _ => false,
+    };
+    let author = field("author");
+    field("text").is_some_and(|t| t != FORGOTTEN) && (named || (author.is_some() && author == user))
 }
 
 /// The texts of every matching message object in a logged input.
 fn collect(
     value: &serde_json::Value,
-    messages: &BTreeSet<String>,
+    messages: &BTreeSet<Target>,
     user: Option<&str>,
     out: &mut Vec<String>,
 ) {
@@ -87,7 +91,7 @@ fn collect(
 
 /// Walks a logged input and blanks the text of any message object that
 /// matches. True when something changed.
-fn scrub(value: &mut serde_json::Value, messages: &BTreeSet<String>, user: Option<&str>) -> bool {
+fn scrub(value: &mut serde_json::Value, messages: &BTreeSet<Target>, user: Option<&str>) -> bool {
     let mut changed = false;
     match value {
         serde_json::Value::Object(object) => {
@@ -158,11 +162,29 @@ fn quotes_any(s: &str, words: &[String]) -> bool {
 mod tests {
     use super::*;
 
+    fn targets(pairs: &[(&str, &str)]) -> BTreeSet<Target> {
+        pairs
+            .iter()
+            .map(|(room, id)| ((*room).to_owned(), (*id).to_owned()))
+            .collect()
+    }
+
+    #[test]
+    fn the_same_id_in_another_room_is_left_alone() {
+        let mut value = serde_json::json!({"inbound": {"history": {"room": "a", "messages": [
+            {"id": "42", "room": "a", "author": "sam", "text": "forget this one"},
+            {"id": "42", "room": "b", "author": "jo", "text": "keep this one"}]}}});
+        assert!(scrub(&mut value, &targets(&[("a", "42")]), None));
+        let messages = &value["inbound"]["history"]["messages"];
+        assert_eq!(messages[0]["text"], FORGOTTEN);
+        assert_eq!(messages[1]["text"], "keep this one");
+    }
+
     #[test]
     fn matching_messages_lose_their_text_and_nothing_else_changes() {
         let mut value = serde_json::json!({"inbound": {"message": {
-            "id": "m1", "author": "sam", "text": "I'm vegan", "attachments": [{"name": "x"}], "at": 5}}});
-        let ids: BTreeSet<String> = ["m1".to_owned()].into();
+            "id": "m1", "room": "r", "author": "sam", "text": "I'm vegan", "attachments": [{"name": "x"}], "at": 5}}});
+        let ids = targets(&[("r", "m1")]);
         assert!(scrub(&mut value, &ids, None));
         assert_eq!(value["inbound"]["message"]["text"], FORGOTTEN);
         assert_eq!(
@@ -175,8 +197,8 @@ mod tests {
 
     #[test]
     fn a_users_messages_match_by_author() {
-        let mut value =
-            serde_json::json!({"inbound": {"message": {"id": "m9", "author": "jo", "text": "hi"}}});
+        let mut value = serde_json::json!({"inbound": {"message": {
+            "id": "m9", "room": "r", "author": "jo", "text": "hi"}}});
         assert!(!scrub(&mut value, &BTreeSet::new(), Some("sam")));
         assert!(scrub(&mut value, &BTreeSet::new(), Some("jo")));
         assert_eq!(value["inbound"]["message"]["text"], FORGOTTEN);
@@ -185,8 +207,9 @@ mod tests {
     #[test]
     fn quotes_of_the_words_go_too_but_short_texts_only_as_messages() {
         let long = "I have been vegan since the spring of 2024";
-        let message = serde_json::json!({"inbound": {"message": {"id": "m1", "author": "sam", "text": long}}});
-        let ids: BTreeSet<String> = ["m1".to_owned()].into();
+        let message = serde_json::json!({"inbound": {"message": {
+            "id": "m1", "room": "r", "author": "sam", "text": long}}});
+        let ids = targets(&[("r", "m1")]);
         let mut words = Vec::new();
         collect(&message, &ids, None, &mut words);
         assert_eq!(words, vec![long.to_owned()]);
@@ -201,9 +224,10 @@ mod tests {
             extracted["extracted"]["extraction"]["facts"][0]["object"],
             "vegan"
         );
-        let short = serde_json::json!({"inbound": {"message": {"id": "m2", "author": "sam", "text": "yes"}}});
+        let short = serde_json::json!({"inbound": {"message": {
+            "id": "m2", "room": "r", "author": "sam", "text": "yes"}}});
         let mut none = Vec::new();
-        collect(&short, &["m2".to_owned()].into(), None, &mut none);
+        collect(&short, &targets(&[("r", "m2")]), None, &mut none);
         assert!(none.is_empty(), "three letters are not a quote to hunt for");
     }
 }

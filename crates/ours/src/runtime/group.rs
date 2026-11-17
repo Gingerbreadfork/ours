@@ -684,7 +684,14 @@ impl GroupRunner {
                     detail: Some(request_detail),
                 });
             }
-            Effect::Redact { messages, user } => self.redact(messages, user, now).await,
+            Effect::Redact {
+                messages,
+                rooms,
+                user,
+            } => {
+                let targets = rooms.into_iter().zip(messages).collect();
+                self.redact(targets, user, now).await;
+            }
             Effect::Notice(line) => {
                 self.hub.publish(AdminEvent {
                     seq: 0,
@@ -746,11 +753,14 @@ impl GroupRunner {
     /// Scrubs forgotten words out of the journal and writes a clean snapshot.
     async fn redact(
         &mut self,
-        messages: Vec<PlatformMessageId>,
+        messages: Vec<(PlatformRoomId, PlatformMessageId)>,
         user: Option<PlatformUserId>,
         now: Instant,
     ) {
-        let ids: BTreeSet<String> = messages.iter().map(|m| m.as_str().to_owned()).collect();
+        let ids: BTreeSet<crate::runtime::redact::Target> = messages
+            .iter()
+            .map(|(room, id)| (room.as_str().to_owned(), id.as_str().to_owned()))
+            .collect();
         let journal = self.journal.clone();
         let who = user.as_ref().map(|u| u.as_str().to_owned());
         let scrubbed = tokio::task::spawn_blocking(move || {

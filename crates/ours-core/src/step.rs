@@ -271,14 +271,15 @@ fn inbound(state: &mut GroupState, event: InboundEvent, now: Instant, fx: &mut V
                     state.saw(&m.author, m.at);
                 }
             }
-            let cards: Vec<PlatformMessageId> = messages
+            let (rooms, cards): (Vec<PlatformRoomId>, Vec<PlatformMessageId>) = messages
                 .iter()
                 .filter(|m| tab::has_card_number(&m.text))
-                .map(|m| m.id.clone())
-                .collect();
+                .map(|m| (m.room.clone(), m.id.clone()))
+                .unzip();
             if !cards.is_empty() {
                 fx.push(Effect::Redact {
                     messages: cards,
+                    rooms,
                     user: None,
                 });
             }

@@ -151,6 +151,14 @@
                 "$ref": "#/$defs/PlatformMessageId"
               }
             },
+            "rooms": {
+              "description": "The room of each message, in the same order. Some platforms\nnumber messages per room, so an id alone can name two.",
+              "type": "array",
+              "items": {
+                "$ref": "#/$defs/PlatformRoomId"
+              },
+              "default": []
+            },
             "user": {
               "anyOf": [
                 {

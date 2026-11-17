@@ -48,6 +48,10 @@ pub enum Effect {
     /// that person said, after a forget (DESIGN.md section 9, "Forgetting").
     Redact {
         messages: Vec<PlatformMessageId>,
+        /// The room of each message, in the same order. Some platforms
+        /// number messages per room, so an id alone can name two.
+        #[serde(default)]
+        rooms: Vec<PlatformRoomId>,
         user: Option<PlatformUserId>,
     },
     /// One line for the admin page's audit trail.

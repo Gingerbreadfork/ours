@@ -8,7 +8,8 @@ use ours_core::extract::NOTHING_TO_KEEP;
 use ours_core::leads::DEFERRAL_REPLY;
 use ours_core::memory::end_of_day;
 use ours_core::rights::{
-    FORGOT_THAT, ILL_DM_YOU, NOTHING_CITED, NOTHING_FROM_YOU, NOTHING_HELD, WHICH_ONE,
+    FORGOT_THAT, ILL_DM_YOU, NOT_KEPT_NOW, NOTHING_CITED, NOTHING_FROM_YOU, NOTHING_HELD,
+    NOTHING_KEPT, WHICH_ONE,
 };
 use ours_core::sim::{
     ClassifierScript, ExtractorScript, ModelScript, Posted, Sim, any_send, citing, dms, draft,
@@ -17,8 +18,8 @@ use ours_core::sim::{
 };
 use ours_core::step::{CHECK, EYES};
 use ours_core::{
-    Command, DeferredChange, Fact, FactId, FactScope, GroupState, Input, MemoryChange, Place,
-    Source, dump, recall, step,
+    Command, DeferredChange, Effect, Fact, FactId, FactScope, GroupState, Input, MemoryChange,
+    Place, Source, dump, recall, step,
 };
 use ours_types::{
     FactDraft, Kind, MessageKind, PlatformRole, PlatformUserId, Score, ScoreSource, SubjectKind,
@@ -78,6 +79,30 @@ fn hear(sim: &mut Sim, room: &str, user: &str, text: &str, drafts: Vec<FactDraft
     }));
     sim.extracts(drafts);
     sim.say(room, user, text)
+}
+
+/// A message the small model scores as a fact while the extractor has yet
+/// to answer.
+fn hear_unread(sim: &mut Sim, room: &str, user: &str, text: &str) -> Posted {
+    sim.classify(ClassifierScript::Score(Score {
+        fact: 0.8,
+        kind: MessageKind::Statement,
+        source: ScoreSource::SmallModel {
+            model: "sim".into(),
+        },
+        ..Score::default()
+    }));
+    sim.extract(ExtractorScript::Silent);
+    sim.say(room, user, text)
+}
+
+/// The extractor's late answer for `message`.
+fn answer_late(sim: &mut Sim, room: &str, message: &Posted, drafts: Vec<FactDraft>) -> Vec<Effect> {
+    sim.feed(Input::Extracted {
+        room: room.into(),
+        message: message.id.clone(),
+        extraction: ours_core::sim::facts(drafts),
+    })
 }
 
 fn fact<'a>(sim: &'a Sim, line: &str) -> &'a Fact {
@@ -879,6 +904,138 @@ fn forget_that_is_for_your_own_facts_and_a_leads_for_anyone() {
         redactions(&cited.effects),
         vec![(std::slice::from_ref(&printer.id), None)]
     );
+}
+
+#[test]
+fn forget_that_stops_a_read_still_in_flight() {
+    let mut sim = friends();
+    let said = hear_unread(&mut sim, "dinner", "jo", "oops, I'm pregnant, wrong chat");
+    assert_eq!(sim.state.extractions.len(), 1);
+    sim.advance(5);
+
+    let forgot = sim.reply("dinner", "jo", "Q, forget that", &said.id);
+    assert_eq!(texts(&forgot.effects), vec![NOT_KEPT_NOW]);
+    assert_eq!(
+        redactions(&forgot.effects),
+        vec![(std::slice::from_ref(&said.id), None)]
+    );
+    assert_eq!(
+        notices(&forgot.effects),
+        vec!["Memory: stopped reading a message Jo asked to forget."]
+    );
+    assert!(sim.state.extractions.is_empty());
+    let held = &sim.state.rooms[&"dinner".into()].messages;
+    assert!(held.iter().all(|m| m.id != said.id));
+
+    // The extractor's answer comes too late to be kept.
+    let late = answer_late(
+        &mut sim,
+        "dinner",
+        &said,
+        vec![draft("Jo", "is", "pregnant")],
+    );
+    assert!(late.is_empty());
+    assert!(sim.state.facts.is_empty());
+}
+
+#[test]
+fn a_lone_forget_that_means_the_unread_message_not_an_older_fact() {
+    let mut sim = friends();
+    hear(
+        &mut sim,
+        "dinner",
+        "jo",
+        "I'm vegetarian now",
+        vec![self_draft("Jo", "is", "vegetarian", "vegetarian now")],
+    );
+    sim.advance(60);
+    let said = hear_unread(
+        &mut sim,
+        "dinner",
+        "jo",
+        "I'm moving to 5 Elm Street in May",
+    );
+    sim.advance(5);
+
+    let forgot = sim.say("dinner", "jo", "Q, forget that");
+    assert_eq!(texts(&forgot.effects), vec![NOT_KEPT_NOW]);
+    assert_eq!(
+        redactions(&forgot.effects),
+        vec![(std::slice::from_ref(&said.id), None)]
+    );
+    assert!(fact(&sim, "Jo is vegetarian").retracted.is_none());
+
+    answer_late(
+        &mut sim,
+        "dinner",
+        &said,
+        vec![draft("Jo", "lives at", "5 Elm Street")],
+    );
+    assert_eq!(sim.state.facts.len(), 1);
+
+    // With nothing unread it means the newest fact again.
+    sim.advance(60);
+    let again = sim.say("dinner", "jo", "Q, forget that");
+    assert_eq!(texts(&again.effects), vec![FORGOT_THAT]);
+}
+
+#[test]
+fn only_the_author_or_a_lead_stops_someone_elses_read() {
+    let mut sim = work();
+    let said = hear_unread(
+        &mut sim,
+        "launch",
+        "sam",
+        "I'm interviewing at Beacon on Friday",
+    );
+    sim.advance(5);
+
+    // A member cannot: the read goes on and the fact is kept.
+    let member = sim.reply("launch", "marcus", "Q, forget that", &said.id);
+    assert_eq!(texts(&member.effects), vec![NOTHING_KEPT]);
+    assert!(redactions(&member.effects).is_empty());
+    assert_eq!(sim.state.extractions.len(), 1);
+
+    // A lead can.
+    let lead = sim.reply("launch", "priya", "Q, forget that", &said.id);
+    assert_eq!(texts(&lead.effects), vec![NOT_KEPT_NOW]);
+    assert!(sim.state.extractions.is_empty());
+    answer_late(
+        &mut sim,
+        "launch",
+        &said,
+        vec![draft("Sam", "is interviewing at", "Beacon")],
+    );
+    assert!(sim.state.facts.is_empty());
+}
+
+#[test]
+fn a_card_number_edited_into_a_message_stops_its_read() {
+    let mut sim = friends();
+    let said = hear_unread(&mut sim, "dinner", "sam", "my new place is 5 Elm Street");
+    let mut edited = sim.state.rooms[&"dinner".into()]
+        .messages
+        .iter()
+        .find(|m| m.id == said.id)
+        .cloned()
+        .unwrap();
+    edited.text = "my card is 4111 1111 1111 1111".to_owned();
+    edited.edited = true;
+    let fx = sim.feed(Input::Inbound(ours_types::InboundEvent::MessageEdited(
+        edited,
+    )));
+    assert_eq!(
+        redactions(&fx),
+        vec![(std::slice::from_ref(&said.id), None)]
+    );
+    assert!(sim.state.extractions.is_empty());
+    answer_late(
+        &mut sim,
+        "dinner",
+        &said,
+        vec![draft("Sam", "lives at", "5 Elm Street")],
+    );
+    assert!(sim.state.facts.is_empty());
 }
 
 #[test]

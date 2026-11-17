@@ -60,7 +60,7 @@ about them, whatever their role. See [privacy.md](privacy.md).
 |---|---|---|
 | `Noa, what do you know about me` (also `what do you remember about me`, `my data`) | anyone | Everything it holds about you, with sources, by DM. It says that it also keeps the hour you usually reply, for timing only. |
 | `Noa, forget me` (also `delete my data`, `forget everything about me`) | anyone | Removes every fact with you as subject or source, closes your commitments, drops your reply hour and stops settle-ups waiting on you. One line in the room, no detail. |
-| `forget that` (reply to a message, or reply to one of its own) | anyone for facts about themselves; a lead for others | Drops the fact from that message, or the facts the agent's reply cited. A member's request about someone else's fact waits for a lead's ✅. |
+| `forget that` (reply to a message, or reply to one of its own) | anyone for facts about themselves; a lead for others | Drops the fact from that message, or the facts the agent's reply cited. A member's request about someone else's fact waits for a lead's ✅. Said about a message the agent is still reading, by its author or a lead, it stops the read so nothing from it is kept. |
 | `that's wrong, it's Lisbon` (also `wrong`, `that's not right`) | same | Retracts the fact and records the correction with you as the source. Said alone, it means the agent's last message only if that was in the last ten minutes or is the latest in the room. |
 | `remember that Sam is vegetarian` (also `note that`, `keep in mind that`, `make a note that`) | same | Keeps the fact, as durable. In a reply, remembers the message you replied to. |
 | `just for this week` (reply to a fact) | same | Makes the fact expire in a week. |

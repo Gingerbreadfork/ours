@@ -31,6 +31,8 @@ use serde::{Deserialize, Serialize};
 
 pub const ILL_DM_YOU: &str = "I'll DM you.";
 pub const FORGOT_THAT: &str = "Forgot that.";
+/// "forget that" about words the extractor had not finished reading.
+pub const NOT_KEPT_NOW: &str = "I hadn't kept anything from that yet, and now I won't.";
 pub const NOTHING_KEPT: &str = "I kept nothing from that.";
 pub const NOTHING_FROM_YOU: &str = "I haven't kept anything from you.";
 pub const NOTHING_CITED: &str = "Nothing I remember went into that, so there's nothing to drop.";
@@ -263,19 +265,7 @@ pub(crate) fn forget_me(
     }
     let n = memory::retract(state, &ids, FORGET_ME, Some(&user), now);
     redact(state, fx, said, Some(user.clone()), Some(&message.id));
-    let (theirs, rest): (Vec<PendingExtract>, Vec<PendingExtract>) =
-        std::mem::take(&mut state.extractions)
-            .into_iter()
-            .partition(|p| p.speaker == user);
-    state.extractions = rest;
-    for pending in theirs {
-        if let Some(guard) = &pending.guard {
-            timers::cancel(state, fx, guard);
-        }
-        if let Some(asked) = &pending.reply_to {
-            reactions::remove(state, fx, &pending.room, asked, Meaning::Eyes);
-        }
-    }
+    stop_reads(state, fx, |p| p.speaker == user);
     state.patterns.forget(&user);
     state.zones.remove(&user);
     state.welcomed.remove(&user);
@@ -417,6 +407,13 @@ fn redact(
             record.outcome = Some(FORGOTTEN_TRIGGER.to_owned());
         }
     }
+    // A read still in flight would bring the words back as facts.
+    stop_reads(state, fx, |p| {
+        Some(&p.message) != keep
+            && messages
+                .iter()
+                .any(|(room, id)| room == &p.room && id == &p.message)
+    });
     let mut unique: Vec<(PlatformRoomId, PlatformMessageId)> = Vec::new();
     for source in messages {
         if !unique.contains(&source) {
@@ -431,6 +428,45 @@ fn redact(
     });
 }
 
+/// Drops the reads `gone` picks, so no facts come of them. Their guards are
+/// cancelled and the 👀 comes off a request that was waiting on one.
+fn stop_reads(
+    state: &mut GroupState,
+    fx: &mut Vec<Effect>,
+    gone: impl Fn(&PendingExtract) -> bool,
+) {
+    let (stopped, rest): (Vec<PendingExtract>, Vec<PendingExtract>) =
+        std::mem::take(&mut state.extractions)
+            .into_iter()
+            .partition(|p| gone(p));
+    state.extractions = rest;
+    for pending in stopped {
+        if let Some(guard) = &pending.guard {
+            timers::cancel(state, fx, guard);
+        }
+        if let Some(asked) = &pending.reply_to {
+            reactions::remove(state, fx, &pending.room, asked, Meaning::Eyes);
+        }
+    }
+}
+
+/// The message "forget that" means while the extractor is still reading
+/// it: the one replied to, or said alone the speaker's own newest in the
+/// room. Only the words' author or a lead may stop the read.
+fn unread(state: &GroupState, message: &Message, role: Role) -> Option<PlatformMessageId> {
+    let mut here = state
+        .extractions
+        .iter()
+        .filter(|p| p.room == message.room && p.message != message.id);
+    let pending = match &message.reply_to {
+        Some(parent) => here.find(|p| &p.message == parent),
+        None => here
+            .filter(|p| p.speaker == message.author)
+            .max_by_key(|p| p.at),
+    }?;
+    (pending.speaker == message.author || role >= Role::Lead).then(|| pending.message.clone())
+}
+
 /// "forget that": the facts from the message replied to, the facts one of
 /// the agent's messages cited, or alone the last ones from the speaker.
 pub(crate) fn forget_that(
@@ -440,23 +476,37 @@ pub(crate) fn forget_that(
     now: Instant,
     fx: &mut Vec<Effect>,
 ) {
+    // Words the extractor is still reading have given no facts yet, so the
+    // read is stopped and the message scrubbed like any forgotten source.
+    let unread = unread(state, message, role);
+    if let Some(id) = &unread {
+        let source = vec![(message.room.clone(), id.clone())];
+        redact(state, fx, source, None, Some(&message.id));
+        let by = state.display_name(&message.room, &message.author);
+        fx.push(Effect::Notice(format!(
+            "Memory: stopped reading a message {by} asked to forget."
+        )));
+    }
     let (facts, nothing) = match target(state, message) {
         Target::Own(facts) => (facts, NOTHING_CITED),
         Target::Message(facts) => (facts, NOTHING_KEPT),
+        // Said alone it meant the unread message, not an older fact.
+        Target::Alone if unread.is_some() => (Vec::new(), NOT_KEPT_NOW),
         Target::Alone => (
             memory::latest_from(state, &message.author),
             NOTHING_FROM_YOU,
         ),
     };
     if facts.is_empty() {
-        say(
-            state,
-            message,
-            nothing,
-            "\"forget that\" found nothing to forget",
-            now,
-            fx,
-        );
+        let (line, rule) = if unread.is_some() {
+            (
+                NOT_KEPT_NOW,
+                "\"forget that\" stopped a read still in flight",
+            )
+        } else {
+            (nothing, "\"forget that\" found nothing to forget")
+        };
+        say(state, message, line, rule, now, fx);
         return;
     }
     act(

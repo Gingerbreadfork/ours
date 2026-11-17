@@ -194,6 +194,9 @@ record. The compliance page prints the same sample.
 
 `daily_cap_usd` limits model spend per group per UTC day. The chat model
 and the small model count against the same cap, even when `[classifier]`
-uses its own endpoint. The meter is in memory and starts at zero on
-restart. The admin page does not chart spend in
-this release; watch your model provider, or run a local model.
+uses its own endpoint. A call costs what `[model.pricing]` or
+`[classifier.pricing]` says; without pricing it counts as free and the cap
+never stops it, which is right for a local model and wrong for a paid one.
+`ours check` and every start warn about a hosted endpoint with no pricing.
+The meter is in memory and starts at zero on restart. The admin page does
+not chart spend in this release; watch your model provider as well.

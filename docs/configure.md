@@ -29,11 +29,28 @@ OpenAI-compatible chat endpoint works.
 | `model` | none, required | The model name sent with each request. It is also what the pinned message and the charter tell the group the agent runs on. |
 | `dialect` | `"openai"` | `openai`, `llama_cpp` or `ollama`. With `openai` the engine's reply schema is sent as a strict response format. |
 | `api_key` | none | Sent as a bearer token when set. Env: `OURS_MODEL_API_KEY`. |
-| `daily_cap_usd` | `1.0` | A spend cap per group per UTC day, above zero, shared by the chat model and the small model. Past it the model is not called. |
+| `daily_cap_usd` | `1.0` | A spend cap per group per UTC day, above zero, shared by the chat model and the small model. Past it the model is not called. It counts what `[model.pricing]` says each call costs, so it needs that table to take effect. |
 | `timeout_secs` | `60` | Per request. The small stages use it too. |
 | `chat_temperature` | `0.8` | For replies. Extraction and scoring always use 0. |
 | `chat_max_tokens` | `700` | The reply budget in tokens. |
 | `extra` | empty | Extra fields sent with every request, such as `extra = { chat_template_kwargs = { enable_thinking = false } }`. |
+
+### `[model.pricing]`
+
+Optional. What the endpoint charges, in dollars per million tokens. Leave
+it out for a model you run yourself: every call then counts as free and
+`daily_cap_usd` never stops one. Set it for a paid endpoint, or the cap
+does nothing; `ours check` and every start warn when a hosted endpoint has
+no pricing.
+
+| Key | Default | What it does |
+|---|---|---|
+| `input_per_million` | required | The rate for prompt tokens. |
+| `output_per_million` | required | The rate for reply tokens. |
+| `cached_input_per_million` | the input rate | The rate for prompt tokens the endpoint reports as cached. |
+
+The count is kept in memory and starts again at each UTC midnight and at
+each restart.
 
 ## `[classifier]`
 
@@ -49,6 +66,11 @@ asked anything.
 | `extra` | the `[model]` extra | |
 
 Leave the section out and the small stages run on the `[model]` endpoint.
+
+A small model with its own `base_url` or `model` is priced by
+`[classifier.pricing]`, which has the same keys as `[model.pricing]`.
+Without it those calls count as free. Otherwise the `[model]` pricing
+applies.
 
 ## `[telemetry]`
 

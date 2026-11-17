@@ -145,6 +145,9 @@ async fn main() -> anyhow::Result<()> {
                     "group"
                 );
             }
+            for note in run::uncounted_spend(&config) {
+                tracing::warn!("{note}");
+            }
             tracing::info!("configuration is valid");
             verify_journals(&config.host.data_dir)
         }

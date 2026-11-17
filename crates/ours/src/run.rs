@@ -37,6 +37,9 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
 
     let (model, dialect, meter) = build_model(&config)?;
     let (classifier, extractor, resolver) = build_small_models(&config, &model, dialect, &meter)?;
+    for note in uncounted_spend(&config) {
+        tracing::warn!("{note}");
+    }
     let (mailer, inbox) = build_mail(&config)?;
     hub.set_catalogue(
         ours_core::catalogue()
@@ -384,6 +387,7 @@ pub fn build_model(
     model_config.dialect = dialect;
     model_config.timeout_secs = config.model.timeout_secs;
     model_config.extra = config.model.extra.clone();
+    model_config.pricing = config.model.pricing.map(Into::into);
     let model: Arc<dyn LargeModel> =
         Arc::new(OpenAiCompatible::new(model_config, Arc::clone(&meter))?);
     Ok((model, dialect, meter))
@@ -441,6 +445,7 @@ pub fn build_small_models(
             .extra
             .clone()
             .unwrap_or_else(|| config.model.extra.clone());
+        model_config.pricing = small_pricing(config).map(Into::into);
         Arc::new(OpenAiCompatible::new(model_config, Arc::clone(meter))?)
     };
     Ok((
@@ -448,6 +453,45 @@ pub fn build_small_models(
         Arc::new(SmallModelExtractor::new(Arc::clone(&small))),
         Arc::new(SmallModelTimeResolver::new(small)),
     ))
+}
+
+/// What the small model's calls cost: its own pricing, or the `[model]`
+/// pricing when it is the same model at the same address.
+fn small_pricing(config: &Config) -> Option<crate::config::PricingSection> {
+    let section = &config.classifier;
+    let same_model = section.base_url.is_none() && section.model.is_none();
+    section
+        .pricing
+        .or(config.model.pricing.filter(|_| same_model))
+}
+
+/// Why `daily_cap_usd` would not hold as configured: a model somewhere
+/// that charges, with no pricing to count its calls by. One line per model.
+pub fn uncounted_spend(config: &Config) -> Vec<String> {
+    let mut notes = Vec::new();
+    let mut note = |table: &str, url: &str| {
+        if let Endpoint::Hosted(host) = Endpoint::of(url) {
+            notes.push(format!(
+                "[{table}.pricing] is not set, so calls to {} count as free and daily_cap_usd cannot stop them",
+                host.as_deref().unwrap_or(url)
+            ));
+        }
+    };
+    if config.model.pricing.is_none() {
+        note("model", &config.model.base_url);
+    }
+    let section = &config.classifier;
+    let own_model = section.base_url.is_some() || section.model.is_some();
+    if section.enabled && own_model && small_pricing(config).is_none() {
+        note(
+            "classifier",
+            section
+                .base_url
+                .as_deref()
+                .unwrap_or(&config.model.base_url),
+        );
+    }
+    notes
 }
 
 /// Sends one canned addressed message through the configured model with the
@@ -795,6 +839,86 @@ mod tests {
             label("http://localhost:8080/v1", Some("http://10.0.0.5/v1")),
             machine
         );
+    }
+
+    #[tokio::test]
+    async fn priced_calls_count_towards_the_daily_cap() {
+        use wiremock::matchers::{method, path};
+        use wiremock::{Mock, MockServer, ResponseTemplate};
+        let server = MockServer::start().await;
+        Mock::given(method("POST"))
+            .and(path("/v1/chat/completions"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "model": "m",
+                "choices": [{ "message": { "content": "{\"message\":\"hi\",\"actions\":[]}" } }],
+                "usage": { "prompt_tokens": 1_000_000, "completion_tokens": 100_000 }
+            })))
+            .mount(&server)
+            .await;
+        let ask = async |pricing: &str| {
+            let config: Config = toml::from_str(&format!(
+                "[host]\n[model]\nbase_url = \"{}/v1\"\nmodel = \"m\"\ndaily_cap_usd = 4.0\n{pricing}",
+                server.uri()
+            ))
+            .unwrap();
+            let (model, _, meter) = build_model(&config).unwrap();
+            let group = GroupId::new("g");
+            let request = || ours_model::ChatRequest {
+                system: String::new(),
+                messages: Vec::new(),
+                output_schema: serde_json::json!({}),
+                schema_name: "plan".into(),
+                max_tokens: 10,
+                temperature: 0.0,
+            };
+            model.complete(&group, request()).await.unwrap();
+            let second = model.complete(&group, request()).await;
+            (meter.spent_today(&group), second)
+        };
+
+        // 1M input at 3.0 and 0.1M output at 15.0 is 4.50, past the cap of 4.
+        let (spent, second) =
+            ask("[model.pricing]\ninput_per_million = 3.0\noutput_per_million = 15.0\n").await;
+        assert!((spent - 4.5).abs() < 1e-9, "{spent}");
+        assert!(matches!(
+            second,
+            Err(ours_model::ModelError::CapExceeded { .. })
+        ));
+
+        // Without pricing a call counts as free.
+        let (spent, second) = ask("").await;
+        assert_eq!(spent, 0.0);
+        assert!(second.is_ok());
+    }
+
+    #[test]
+    fn a_hosted_model_without_pricing_is_called_out() {
+        let priced = "[model.pricing]\ninput_per_million = 1.0\noutput_per_million = 2.0\n";
+        let config = |model_url: &str, rest: &str| -> Config {
+            toml::from_str(&format!(
+                "[host]\n[model]\nbase_url = \"{model_url}\"\nmodel = \"m\"\n{rest}"
+            ))
+            .unwrap()
+        };
+        assert!(uncounted_spend(&config("http://localhost:8080/v1", "")).is_empty());
+        assert!(uncounted_spend(&config("http://192.168.1.20:8080/v1", "")).is_empty());
+        let notes = uncounted_spend(&config("https://api.example.com/v1", ""));
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("[model.pricing]") && notes[0].contains("api.example.com"));
+        assert!(uncounted_spend(&config("https://api.example.com/v1", priced)).is_empty());
+
+        // A small model of its own needs its own pricing.
+        let small = format!("{priced}[classifier]\nmodel = \"s\"\n");
+        let notes = uncounted_spend(&config("https://api.example.com/v1", &small));
+        assert_eq!(notes.len(), 1, "{notes:?}");
+        assert!(notes[0].contains("[classifier.pricing]"));
+        let small_priced = format!(
+            "{small}[classifier.pricing]\ninput_per_million = 0.1\noutput_per_million = 0.2\n"
+        );
+        assert!(uncounted_spend(&config("https://api.example.com/v1", &small_priced)).is_empty());
+        // Only the dialect differs: the same model, so the same pricing.
+        let dialect = format!("{priced}[classifier]\ndialect = \"llama_cpp\"\n");
+        assert!(uncounted_spend(&config("https://api.example.com/v1", &dialect)).is_empty());
     }
 
     #[test]

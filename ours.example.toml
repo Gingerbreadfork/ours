@@ -19,12 +19,23 @@ timeout_secs = 60
 # Extra request fields, for example to turn off a model's thinking mode:
 # extra = { chat_template_kwargs = { enable_thinking = false } }
 
+# What a paid endpoint charges, in dollars per million tokens. daily_cap_usd
+# counts by these, so without them it never stops a call.
+# [model.pricing]
+# input_per_million = 3.0
+# output_per_million = 15.0
+# cached_input_per_million = 0.3
+
 # The small model that scores every message before the large one is asked.
 # Defaults to the [model] endpoint; point it at a smaller model to save time,
 # or set enabled = false to keep the rules pass only.
 [classifier]
 enabled = true
 # model = "gemma-4-e2b"
+# A small model of its own on a paid endpoint has its own rates:
+# [classifier.pricing]
+# input_per_million = 0.1
+# output_per_million = 0.4
 
 # Triage telemetry: off by default. When on, a text-free record per scored
 # message (signals, kind, dial, outcome) is written under data/telemetry and,

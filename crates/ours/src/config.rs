@@ -75,8 +75,13 @@ pub struct ModelSection {
     pub dialect: ModelDialect,
     #[serde(default)]
     pub api_key: Option<String>,
+    /// Dollars per group per UTC day. It counts only what `pricing` says a
+    /// call costs.
     #[serde(default = "default_cap")]
     pub daily_cap_usd: f64,
+    /// What the endpoint charges. Unset, every call counts as free.
+    #[serde(default)]
+    pub pricing: Option<PricingSection>,
     #[serde(default = "default_timeout")]
     pub timeout_secs: u64,
     /// Sampling temperature for chat replies; extraction and scoring use 0.
@@ -91,6 +96,43 @@ pub struct ModelSection {
     pub extra: serde_json::Map<String, serde_json::Value>,
 }
 
+/// What an endpoint charges, in dollars per million tokens.
+#[derive(Debug, Clone, Copy, PartialEq, Deserialize)]
+#[serde(deny_unknown_fields)]
+pub struct PricingSection {
+    pub input_per_million: f64,
+    pub output_per_million: f64,
+    /// For cached prompt tokens; the input rate when unset.
+    #[serde(default)]
+    pub cached_input_per_million: Option<f64>,
+}
+
+impl PricingSection {
+    fn rates(&self) -> [f64; 3] {
+        [
+            self.input_per_million,
+            self.output_per_million,
+            self.cached_input_per_million
+                .unwrap_or(self.input_per_million),
+        ]
+    }
+}
+
+impl From<PricingSection> for ours_model::Pricing {
+    fn from(section: PricingSection) -> Self {
+        let [
+            input_per_million,
+            output_per_million,
+            cached_input_per_million,
+        ] = section.rates();
+        ours_model::Pricing {
+            input_per_million,
+            output_per_million,
+            cached_input_per_million,
+        }
+    }
+}
+
 // A missing section means the small stages run on the chat model.
 impl Default for ClassifierSection {
     fn default() -> Self {
@@ -101,6 +143,7 @@ impl Default for ClassifierSection {
             dialect: None,
             api_key: None,
             extra: None,
+            pricing: None,
         }
     }
 }
@@ -147,6 +190,10 @@ pub struct ClassifierSection {
     pub api_key: Option<String>,
     #[serde(default)]
     pub extra: Option<serde_json::Map<String, serde_json::Value>>,
+    /// What a small model on its own endpoint or under its own name
+    /// charges. With neither set, the `[model]` pricing applies.
+    #[serde(default)]
+    pub pricing: Option<PricingSection>,
 }
 
 fn default_true() -> bool {
@@ -342,6 +389,16 @@ impl Config {
                 "[model] daily_cap_usd must be a number above zero, not {cap}"
             )));
         }
+        for (table, pricing) in [
+            ("model", self.model.pricing),
+            ("classifier", self.classifier.pricing),
+        ] {
+            if pricing.is_some_and(|p| p.rates().iter().any(|r| !r.is_finite() || *r < 0.0)) {
+                return Err(ConfigError::Invalid(format!(
+                    "[{table}.pricing] rates must be numbers, zero or above"
+                )));
+            }
+        }
         for (i, connector) in self.connectors.iter().enumerate() {
             if !BUILT_PLATFORMS.contains(&connector.platform) {
                 return Err(ConfigError::Invalid(format!(
@@ -504,6 +561,46 @@ token = "a"
         )
         .validate()
         .expect("telegram is built");
+    }
+
+    #[test]
+    fn pricing_is_read_and_checked() {
+        let text = r#"
+[host]
+[model]
+base_url = "https://api.example.com/v1"
+model = "m"
+[model.pricing]
+input_per_million = 3.0
+output_per_million = 15.0
+[classifier]
+model = "s"
+[classifier.pricing]
+input_per_million = 0.1
+output_per_million = 0.4
+cached_input_per_million = 0.01
+"#;
+        let mut config: Config = toml::from_str(text).expect("parses");
+        config.validate().expect("valid");
+        let large = ours_model::Pricing::from(config.model.pricing.expect("set"));
+        assert_eq!(
+            (
+                large.input_per_million,
+                large.output_per_million,
+                large.cached_input_per_million
+            ),
+            (3.0, 15.0, 3.0)
+        );
+        let small = ours_model::Pricing::from(config.classifier.pricing.expect("set"));
+        assert_eq!(small.cached_input_per_million, 0.01);
+
+        for bad in [-1.0, f64::NAN, f64::INFINITY] {
+            let mut pricing = config.model.pricing.expect("set");
+            pricing.output_per_million = bad;
+            config.model.pricing = Some(pricing);
+            let err = config.validate().expect_err("must fail");
+            assert!(err.to_string().contains("[model.pricing]"), "{bad}: {err}");
+        }
     }
 
     #[test]

@@ -1208,7 +1208,7 @@ async fn compliance_page_shows_sample_retention_and_hold() -> Result<()> {
     assert!(html.contains("365 days"));
     assert!(html.contains("<td>on</td>"));
     assert!(html.contains("Book &lt;club&gt;"));
-    assert!(html.contains("turn off expiry"));
+    assert!(html.contains("Legal hold turns off expiry."));
     assert!(html.contains("/api/groups/g1/export.json"));
     assert!(html.contains("forget me"));
     let order = [

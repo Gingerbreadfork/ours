@@ -190,7 +190,7 @@ pub(crate) fn render(report: &ComplianceReport) -> String {
 
     let mut retention = String::from(
         "<p>Durable facts stay until corrected or forgotten. Perishable facts expire. \
-         The action log is kept for the days shown below. Legal hold is turn off expiry.</p>\n<table>\n\
+         The action log is kept for the days shown below. Legal hold turns off expiry.</p>\n<table>\n\
          <tr><th>Group</th><th>Kind</th><th>Retention</th><th>Legal hold</th></tr>\n",
     );
     for g in &report.groups {

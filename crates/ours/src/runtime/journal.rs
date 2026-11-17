@@ -20,6 +20,8 @@ pub const SNAPSHOT_EVERY: u64 = 200;
 pub enum JournalError {
     #[error(transparent)]
     Store(#[from] StoreError),
+    #[error("an input could not be encoded: {0}")]
+    Encode(#[source] serde_json::Error),
     #[error("record {seq} could not be decoded: {source}")]
     Decode {
         seq: u64,
@@ -77,8 +79,7 @@ where
 
     /// Appends one input and returns its seq. Blocks on disk.
     pub fn append(&self, input: &I, at: Instant) -> Result<u64, JournalError> {
-        let payload =
-            serde_json::to_vec(input).map_err(|source| JournalError::Decode { seq: 0, source })?;
+        let payload = serde_json::to_vec(input).map_err(JournalError::Encode)?;
         Ok(self.log.append(INPUT_KIND, &payload, at)?.seq)
     }
 

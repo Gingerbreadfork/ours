@@ -103,14 +103,15 @@ fn authenticated(message: &Message<'_>, receiver: Option<&str>, from: &str) -> b
         .is_some_and(|results| vouches(&results, from_domain))
 }
 
-/// A dmarc=pass for the From domain is enough, and any dmarc verdict other
-/// than pass or none refuses the mail. Otherwise a dkim or spf pass must
-/// align with the From domain.
+/// A dmarc=pass for the From domain is enough, and a dmarc failure refuses
+/// the mail. With no verdict, which is how none and bestguesspass read
+/// when the domain publishes no policy, a dkim or spf pass must align with
+/// the From domain.
 fn vouches(results: &[AuthResult], from_domain: &str) -> bool {
     let dmarc: Vec<&AuthResult> = results.iter().filter(|r| r.method == "dmarc").collect();
     if dmarc
         .iter()
-        .any(|r| r.result != "pass" && r.result != "none")
+        .any(|r| !matches!(r.result.as_str(), "pass" | "none" | "bestguesspass"))
     {
         return false;
     }
@@ -531,6 +532,20 @@ mod tests {
     fn a_dmarc_fail_outweighs_an_aligned_pass() {
         assert!(!authenticated_with(&format!(
             "mx.example.org; {ALIGNED}; dmarc=fail header.from=venue.example"
+        )));
+    }
+
+    #[test]
+    fn a_best_guess_pass_still_needs_an_aligned_pass() {
+        let best_guess = "dmarc=bestguesspass action=none header.from=venue.example";
+        assert!(authenticated_with(&format!(
+            "mx.example.org; spf=pass smtp.mailfrom=venue.example; dkim=none; {best_guess}"
+        )));
+        assert!(!authenticated_with(&format!(
+            "mx.example.org; spf=pass smtp.mailfrom=attacker.example; dkim=none; {best_guess}"
+        )));
+        assert!(!authenticated_with(&format!(
+            "mx.example.org; {best_guess}"
         )));
     }
 

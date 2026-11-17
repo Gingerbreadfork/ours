@@ -100,7 +100,8 @@ domain. Authentication is read only from your own provider's
 header the sender wrote themselves does not count. A sender counts as
 verified when that header reports `dmarc=pass` for the From domain, or,
 when it gives no DMARC verdict, a DKIM or SPF pass for the From domain or a
-subdomain of it. Any other DMARC result means unverified. Over IMAP a
+subdomain of it. `dmarc=none` and Microsoft's `dmarc=bestguesspass` count
+as no verdict. Any other DMARC result means unverified. Over IMAP a
 message is flagged as read only after every group has kept it; after a
 crash it is read again, and a mail already handled is ignored. Mail that answers
 nothing the agent sent is not kept. Every group hears incoming mail, and only the one that sent the

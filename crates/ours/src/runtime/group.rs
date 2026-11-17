@@ -15,15 +15,20 @@ use ours_types::{
     GroupId, InboundEvent, InboundMail, Instant, Kind, Outbound, OutboundAction, Platform,
     PlatformMessageId, PlatformRoomId, PlatformUserId,
 };
-use std::collections::{BTreeSet, HashMap};
+use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Duration;
 
-/// How often the page's copy of the state is refreshed during a burst.
-const STATE_PUBLISH_EVERY: Duration = Duration::from_secs(1);
 use thiserror::Error;
 use tokio::sync::{Semaphore, mpsc, oneshot, watch};
+
+/// How often the page's copy of the state is refreshed during a burst.
+const STATE_PUBLISH_EVERY: Duration = Duration::from_secs(1);
+
+/// How many redacted messages are remembered, for answers about them that
+/// were still on their way.
+const FORGOTTEN_KEPT: usize = 256;
 
 #[derive(Debug, Error)]
 pub enum GroupError {
@@ -124,6 +129,8 @@ pub struct GroupRunner {
     /// changes nothing dated does not re-render a feed per member.
     calendar_mark: u64,
     last_state_publish: Option<tokio::time::Instant>,
+    /// Messages redacted in this run, newest last, as (room, id).
+    forgotten: VecDeque<(PlatformRoomId, PlatformMessageId)>,
 }
 
 impl std::fmt::Debug for GroupRunner {
@@ -246,6 +253,7 @@ impl GroupRunner {
             extract_slots: Arc::new(Semaphore::new(EXTRACT_CONCURRENCY)),
             calendar_mark: 0,
             last_state_publish: None,
+            forgotten: VecDeque::new(),
         };
         for command in runner.reconcile() {
             runner.handle(Input::Command(command)).await?;
@@ -389,6 +397,11 @@ impl GroupRunner {
     }
 
     async fn handle(&mut self, input: Input) -> Result<(), GroupError> {
+        let input = crate::runtime::redact::without_forgotten(input, |room, message| {
+            self.forgotten
+                .iter()
+                .any(|(r, m)| r == room && m == message)
+        });
         // Millisecond time, exactly what the journal stores, so a replay
         // folds the same instants the live run did.
         let now = Instant::from_millis(jiff::Timestamp::now().as_millisecond())
@@ -761,6 +774,10 @@ impl GroupRunner {
             .iter()
             .map(|(room, id)| (room.as_str().to_owned(), id.as_str().to_owned()))
             .collect();
+        self.forgotten.extend(messages);
+        while self.forgotten.len() > FORGOTTEN_KEPT {
+            self.forgotten.pop_front();
+        }
         let journal = self.journal.clone();
         let who = user.as_ref().map(|u| u.as_str().to_owned());
         let scrubbed = tokio::task::spawn_blocking(move || {

@@ -3,6 +3,7 @@
 
 use crate::runtime::journal::{Journal, JournalError};
 use ours_core::{GroupState, Input};
+use ours_types::{Extraction, PlatformMessageId, PlatformRoomId, TimeMeaning, TimeResolution};
 use std::cell::RefCell;
 use std::collections::BTreeSet;
 
@@ -44,6 +45,31 @@ pub fn redact_journal(
         journal.drop_snapshots_from(seq)?;
     }
     Ok(changed)
+}
+
+/// An answer about a message `gone` says was redacted while the answer
+/// was on its way, emptied so the journal never gains the words it quotes.
+/// Every other input passes unchanged.
+pub fn without_forgotten(
+    input: Input,
+    gone: impl Fn(&PlatformRoomId, &PlatformMessageId) -> bool,
+) -> Input {
+    match input {
+        Input::Extracted { room, message, .. } if gone(&room, &message) => Input::Extracted {
+            room,
+            message,
+            extraction: Extraction::default(),
+        },
+        Input::TimeResolved(resolution) if gone(&resolution.room, &resolution.message) => {
+            Input::TimeResolved(TimeResolution {
+                phrase: None,
+                meaning: TimeMeaning::None,
+                echo: None,
+                ..resolution
+            })
+        }
+        other => other,
+    }
 }
 
 fn is_target(
@@ -167,6 +193,56 @@ mod tests {
             .iter()
             .map(|(room, id)| ((*room).to_owned(), (*id).to_owned()))
             .collect()
+    }
+
+    #[test]
+    fn a_late_answer_about_a_forgotten_message_is_emptied() {
+        let gone = |room: &PlatformRoomId, message: &PlatformMessageId| {
+            room.as_str() == "a" && message.as_str() == "42"
+        };
+        let extracted = |room: &str| Input::Extracted {
+            room: room.into(),
+            message: "42".into(),
+            extraction: Extraction {
+                facts: vec![ours_types::FactDraft {
+                    subject: "Sam".into(),
+                    subject_kind: ours_types::SubjectKind::Person,
+                    predicate: "lives at".into(),
+                    object: "5 Elm Street".into(),
+                    about_self: true,
+                    stated: true,
+                    durable: true,
+                    expires: None,
+                    starts: None,
+                    quote: Some("my new place is 5 Elm Street".into()),
+                }],
+                ..Extraction::default()
+            },
+        };
+        let emptied = without_forgotten(extracted("a"), gone);
+        assert!(
+            matches!(&emptied, Input::Extracted { extraction, .. } if extraction == &Extraction::default()),
+            "{emptied:?}"
+        );
+        // The same id in another room is someone else's message.
+        assert_eq!(without_forgotten(extracted("b"), gone), extracted("b"));
+
+        let resolved = Input::TimeResolved(TimeResolution {
+            room: "a".into(),
+            message: "42".into(),
+            phrase: Some("my place on thursday".into()),
+            meaning: TimeMeaning::Ambiguous {
+                candidates: Vec::new(),
+            },
+            echo: Some("Thursday".into()),
+        });
+        let Input::TimeResolved(blank) = without_forgotten(resolved, gone) else {
+            panic!("still a time resolution");
+        };
+        assert_eq!(
+            (blank.phrase, blank.meaning, blank.echo),
+            (None, TimeMeaning::None, None)
+        );
     }
 
     #[test]

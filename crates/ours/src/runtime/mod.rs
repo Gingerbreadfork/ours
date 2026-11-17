@@ -9,12 +9,3 @@ pub mod model;
 pub mod redact;
 pub mod router;
 pub mod timers;
-
-/// Days the action log is kept per kind (DESIGN.md section 9).
-pub fn retention_days(kind: ours_types::Kind) -> u32 {
-    use ours_types::Kind;
-    match kind {
-        Kind::Team | Kind::Project | Kind::Committee => 365,
-        _ => 90,
-    }
-}

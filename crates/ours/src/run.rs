@@ -174,28 +174,6 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
         let (wipe_tx, wipe_rx) = mpsc::channel(1);
         hub.set_controls(&id, tx.clone(), wipe_tx);
         let wiring_parts = Arc::new(WiringParts {
-            self_tx: tx.clone(),
-            outbound: outbound.clone(),
-            model: Arc::clone(&model),
-            classifier: Arc::clone(&classifier),
-            extractor: Arc::clone(&extractor),
-            resolver: Arc::clone(&resolver),
-            mailer: mailer.clone(),
-            strict_schema: dialect == Dialect::OpenAi,
-            chat: crate::runtime::model::ChatSettings {
-                temperature: config.model.chat_temperature,
-                max_tokens: config.model.chat_max_tokens,
-            },
-            hub: hub.clone(),
-            router: Arc::clone(&router),
-            charter_path: config.host.data_dir.join(format!("{id}.charter.md")),
-            decisions_path: config.host.data_dir.join(format!("{id}.decisions.md")),
-        });
-        let wiring = Wiring {
-            journal,
-            inputs: rx,
-            wipes: wipe_rx,
-            mail: mail_rx,
             self_tx: tx,
             outbound: outbound.clone(),
             model: Arc::clone(&model),
@@ -212,7 +190,8 @@ pub async fn run(config: Config) -> anyhow::Result<()> {
             router: Arc::clone(&router),
             charter_path: config.host.data_dir.join(format!("{id}.charter.md")),
             decisions_path: config.host.data_dir.join(format!("{id}.decisions.md")),
-        };
+        });
+        let wiring = wiring_parts.wiring(journal, rx, wipe_rx, mail_rx);
         let runner = GroupRunner::recover(id.clone(), desired.clone(), wiring).await?;
         let shutdown = shutdown_rx.clone();
         let again = Arc::clone(&wiring_parts);

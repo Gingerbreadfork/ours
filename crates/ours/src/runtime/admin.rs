@@ -199,7 +199,7 @@ impl AdminHub {
             kind,
             file: path.map(|p| p.display().to_string()).unwrap_or_default(),
             file_bytes,
-            retention_days: parsed.map_or(90, crate::runtime::retention_days),
+            retention_days: parsed.map_or(90, ours_core::retention_days),
             legal_hold: state
                 .get("legal_hold")
                 .and_then(|v| v.as_bool())
@@ -244,19 +244,6 @@ impl AdminHub {
         let view = groups.entry(group.clone()).or_default();
         view.ics_group = Some(group_ics);
         view.ics_members = members;
-    }
-
-    /// Constant-time check of a feed secret, so a probe learns nothing from timing.
-    fn feed_secret_matches(view: &GroupView, given: &str) -> bool {
-        let Some(expected) = view.feed_secret.as_deref() else {
-            return false;
-        };
-        let (a, b) = (expected.as_bytes(), given.as_bytes());
-        let mut diff = u8::from(a.len() != b.len());
-        for (i, x) in a.iter().enumerate() {
-            diff |= x ^ b.get(i).copied().unwrap_or(0);
-        }
-        diff == 0
     }
 
     /// The engine's action records, newest first, with names resolved.
@@ -496,7 +483,7 @@ impl AdminSource for AdminHub {
                 if let Some(kind) = kind {
                     object.insert(
                         "retention_days".to_owned(),
-                        serde_json::json!(crate::runtime::retention_days(kind)),
+                        serde_json::json!(ours_core::retention_days(kind)),
                     );
                 }
             }
@@ -576,10 +563,8 @@ impl AdminSource for AdminHub {
                 constant_time_eq(&expected, secret).then(|| view.ics_members.get(user).cloned())?
             }
             None => {
-                if !Self::feed_secret_matches(view, secret) {
-                    return None;
-                }
-                view.ics_group.clone()
+                let expected = view.feed_secret.as_deref()?;
+                constant_time_eq(expected, secret).then(|| view.ics_group.clone())?
             }
         }
     }
@@ -608,6 +593,8 @@ impl AdminSource for AdminHub {
 
 use ours_core::member_feed_token;
 
+/// Compares without stopping at the first differing byte, so a probe
+/// learns nothing about a secret from timing.
 fn constant_time_eq(a: &str, b: &str) -> bool {
     let (a, b) = (a.as_bytes(), b.as_bytes());
     a.len() == b.len() && a.iter().zip(b).fold(0u8, |acc, (x, y)| acc | (x ^ y)) == 0
